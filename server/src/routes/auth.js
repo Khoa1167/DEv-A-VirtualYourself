@@ -6,7 +6,7 @@ const PendingUser   = require('../models/PendingUser');
 const PasswordReset = require('../models/PasswordReset');
 const { protect }   = require('../middleware/auth');
 const { sendOTPEmail, sendResetPasswordOTPEmail } = require('../config/mailer');
-const { uploadAvatar } = require('../config/cloudinary');
+const { uploadAvatar, uploadCover } = require('../config/cloudinary');
 
 const crypto = require('crypto');
 
@@ -190,7 +190,7 @@ router.get('/me', protect, (req, res) => res.json(req.user));
 // ─── PUT /api/auth/profile — cập nhật thông tin cá nhân ──────────────────
 router.put('/profile', protect, async (req, res) => {
   try {
-    const { nickname, email, phone } = req.body;
+    const { nickname, email, phone, dateOfBirth, gender, bio } = req.body;
     const updates = {};
 
     if (nickname && nickname !== req.user.nickname) {
@@ -225,6 +225,18 @@ router.put('/profile', protect, async (req, res) => {
 
     if (phone !== undefined) {
       updates.phone = phone;
+    }
+
+    if (dateOfBirth !== undefined) {
+      updates.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+    }
+
+    if (gender !== undefined) {
+      updates.gender = ['male', 'female', 'other'].includes(gender) ? gender : '';
+    }
+
+    if (bio !== undefined) {
+      updates.bio = bio.slice(0, 150);
     }
 
     const user = await User.findByIdAndUpdate(
@@ -272,9 +284,43 @@ router.post('/avatar', protect, uploadAvatar.single('avatar'), async (req, res) 
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { avatar: avatarUrl },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ─── POST /api/auth/cover — upload ảnh bìa ──────────────────────────────────
+router.post('/cover', protect, uploadCover.single('cover'), async (req, res) => {
+  try {
+    if (!req.file)
+      return res.status(400).json({ message: 'Không có file ảnh' });
+
+    const coverUrl = req.file.path; // Cloudinary trả về URL trong path
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { cover: coverUrl },
+      { returnDocument: 'after' }
+    );
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ─── DELETE /api/auth/cover — xóa ảnh bìa ──────────────────────────────────
+router.delete('/cover', protect, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { cover: '' },
+      { returnDocument: 'after' }
+    );
     res.json(user);
   } catch (err) {
     res.status(500).json({ message: err.message });

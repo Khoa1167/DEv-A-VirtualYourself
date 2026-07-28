@@ -3,10 +3,12 @@ import Sidebar    from '../components/Chat/Sidebar';
 import ChatWindow from '../components/Chat/ChatWindow';
 import FriendList from '../components/Chat/FriendList';
 import CallModal  from '../components/Chat/CallModal';
+import OtherUserProfileModal from '../components/Profile/OtherUserProfileModal';
 import { useSocket } from '../hooks/useSocket';
 
 export default function ChatPage() {
   const [activeRoom, setActiveRoom] = useState(null);
+  const [viewingUserId, setViewingUserId] = useState(null);
 
   // States cho tính năng cuộc gọi WebRTC
   const { on, emit } = useSocket();
@@ -264,9 +266,13 @@ export default function ChatPage() {
             room={activeRoom} 
             onBackToFriends={() => setActiveRoom(null)} 
             onInitiateCall={handleStartCall}
+            onViewProfile={(userId) => setViewingUserId(userId)}
           />
         ) : (
-          <FriendList onSelectDM={setActiveRoom} />
+          <FriendList 
+            onSelectDM={setActiveRoom} 
+            onViewProfile={(userId) => setViewingUserId(userId)}
+          />
         )}
       </div>
 
@@ -289,6 +295,16 @@ export default function ChatPage() {
         isMinimized={isMinimized}
         setIsMinimized={setIsMinimized}
       />
+
+      {/* Modal Xem Profile người dùng khác */}
+      {viewingUserId && (
+        <OtherUserProfileModal
+          userId={viewingUserId}
+          onClose={() => setViewingUserId(null)}
+          onSelectRoom={setActiveRoom}
+          onInitiateCall={handleStartCall}
+        />
+      )}
     </div>
   );
 }

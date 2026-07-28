@@ -5,7 +5,7 @@ import { useSocket } from '../../hooks/useSocket';
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢'];
 
-export default function MessageItem({ message, onReact, onReply, isDM, onForwardClick }) {
+export default function MessageItem({ message, onReact, onReply, isDM, onForwardClick, onViewProfile }) {
   const { user } = useAuth();
   const { emit } = useSocket();
   const isOwn = message.sender._id?.toString() === user._id?.toString();
@@ -95,7 +95,10 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
       
       {/* Nickname phía trên tin nhắn (nếu là phòng chat nhóm và không phải tin nhắn của mình) */}
       {!isOwn && !isDM && (
-        <span className="text-[10px] text-gray-500 font-semibold mb-0.5 ml-10">
+        <span 
+          onClick={() => onViewProfile && onViewProfile(message.sender._id)}
+          className="text-[10px] text-gray-500 font-semibold mb-0.5 ml-10 hover:underline cursor-pointer hover:text-[#0084ff] transition-colors"
+        >
           {senderName}
         </span>
       )}
@@ -162,8 +165,11 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
         
         {/* Avatar người gửi (Chỉ hiện cho người khác) */}
         {!isOwn && (
-          <div className="relative flex-shrink-0">
-            <div className="w-8 h-8 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-xs overflow-hidden ring-1 ring-gray-100" title={senderName}>
+          <div 
+            className="relative flex-shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+            onClick={() => onViewProfile && onViewProfile(message.sender._id)}
+          >
+            <div className="w-8 h-8 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-xs overflow-hidden ring-1 ring-gray-100" title={`Xem profile của ${senderName}`}>
               {message.sender.avatar ? (
                 <img src={message.sender.avatar} alt="avatar" className="w-8 h-8 rounded-full object-cover" />
               ) : (

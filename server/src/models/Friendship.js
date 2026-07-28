@@ -16,6 +16,14 @@ const friendshipSchema = new mongoose.Schema({
     enum: ['pending', 'accepted', 'rejected'],
     default: 'pending',
   },
+  senderAlias: {
+    type: String,
+    default: '',
+  },
+  receiverAlias: {
+    type: String,
+    default: '',
+  },
   combinationKey: {
     type: String,
     unique: true,

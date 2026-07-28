@@ -22,4 +22,18 @@ const uploadAvatar = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-module.exports = { cloudinary, uploadAvatar };
+const coverStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'chat-app/covers',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 1200, height: 400, crop: 'fill' }],
+  },
+});
+
+const uploadCover = multer({
+  storage: coverStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
+
+module.exports = { cloudinary, uploadAvatar, uploadCover };

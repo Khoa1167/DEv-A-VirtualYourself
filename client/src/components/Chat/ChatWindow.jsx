@@ -12,7 +12,7 @@ const getDMPartner = (room, currentUser) => {
   return room.members.find(m => m._id?.toString() !== currentUser._id?.toString());
 };
 
-export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
+export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onViewProfile }) {
   const { user }          = useAuth();
   const { emit, on, isConnected } = useSocket();
   const [messages, setMessages]       = useState([]);
@@ -195,38 +195,47 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
               ←
             </button>
 
-            {/* Avatar Header */}
-            <div className="relative">
-              {room.isDM ? (
-                <div className="w-10 h-10 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-sm overflow-hidden ring-1 ring-gray-100">
-                  {dmPartner?.avatar ? (
-                    <img src={dmPartner.avatar} alt="avatar" className="w-10 h-10 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-[#0084ff] flex items-center justify-center text-white">
-                      {displayName[0].toUpperCase()}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#006aff] to-[#00b2ff] text-white flex items-center justify-center font-bold text-base">
-                  💬
-                </div>
-              )}
-              {room.isDM && (
-                <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
-                  dmPartnerOnline ? 'bg-[#31a24c]' : 'bg-gray-400'
-                }`} />
-              )}
-            </div>
-
-            <div className="flex flex-col leading-tight">
-              <span className="font-bold text-gray-900 truncate text-[15px]">{displayName}</span>
-              <span className="text-[11px] text-gray-500 font-medium">
-                {room.isDM 
-                  ? (dmPartnerOnline ? 'Đang hoạt động' : 'Không hoạt động') 
-                  : `${room.members?.length || 0} thành viên`
+            {/* Avatar Header & Tên */}
+            <div 
+              className={`flex items-center gap-3 min-w-0 ${room.isDM && dmPartner && onViewProfile ? 'cursor-pointer group' : ''}`}
+              onClick={() => {
+                if (room.isDM && dmPartner && onViewProfile) {
+                  onViewProfile(dmPartner._id);
                 }
-              </span>
+              }}
+            >
+              <div className="relative flex-shrink-0">
+                {room.isDM ? (
+                  <div className="w-10 h-10 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-sm overflow-hidden ring-1 ring-gray-100 group-hover:ring-[#0084ff] transition-all">
+                    {dmPartner?.avatar ? (
+                      <img src={dmPartner.avatar} alt="avatar" className="w-10 h-10 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#0084ff] flex items-center justify-center text-white">
+                        {displayName[0].toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#006aff] to-[#00b2ff] text-white flex items-center justify-center font-bold text-base">
+                    💬
+                  </div>
+                )}
+                {room.isDM && (
+                  <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
+                    dmPartnerOnline ? 'bg-[#31a24c]' : 'bg-gray-400'
+                  }`} />
+                )}
+              </div>
+
+              <div className="flex flex-col leading-tight">
+                <span className="font-bold text-gray-900 truncate text-[15px] group-hover:text-[#0084ff] transition-colors">{displayName}</span>
+                <span className="text-[11px] text-gray-500 font-medium">
+                  {room.isDM 
+                    ? (dmPartnerOnline ? 'Đang hoạt động' : 'Không hoạt động') 
+                    : `${room.members?.length || 0} thành viên`
+                  }
+                </span>
+              </div>
             </div>
           </div>
 
@@ -289,6 +298,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
                   isGrouped={false}
                   isDM={room.isDM}
                   onForwardClick={handleForwardClick}
+                  onViewProfile={onViewProfile}
                 />
               );
             })}
@@ -334,9 +344,16 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
 
           <div className="flex-1 overflow-y-auto hide-scrollbar p-4 flex flex-col items-center gap-6">
             {/* Ảnh đại diện phòng lớn ở cột thông tin */}
-            <div className="flex flex-col items-center gap-2 mt-4 text-center">
+            <div 
+              className={`flex flex-col items-center gap-2 mt-4 text-center ${room.isDM && dmPartner && onViewProfile ? 'cursor-pointer group' : ''}`}
+              onClick={() => {
+                if (room.isDM && dmPartner && onViewProfile) {
+                  onViewProfile(dmPartner._id);
+                }
+              }}
+            >
               {room.isDM ? (
-                <div className="w-20 h-20 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-3xl overflow-hidden ring-2 ring-gray-100">
+                <div className="w-20 h-20 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-3xl overflow-hidden ring-2 ring-gray-100 group-hover:ring-[#0084ff] transition-all">
                   {dmPartner?.avatar ? (
                     <img src={dmPartner.avatar} alt="avatar" className="w-20 h-20 rounded-full object-cover" />
                   ) : (
@@ -350,7 +367,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
                   💬
                 </div>
               )}
-              <span className="font-bold text-lg text-gray-900 mt-2">{displayName}</span>
+              <span className="font-bold text-lg text-gray-900 mt-2 group-hover:text-[#0084ff] transition-colors">{displayName}</span>
               {room.isDM && (
                 <span className="text-xs text-gray-500">
                   {dmPartnerOnline ? 'Đang hoạt động trên Messenger' : 'Không hoạt động'}
@@ -370,7 +387,11 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
                 <div className="flex flex-col gap-2 max-h-64 overflow-y-auto hide-scrollbar">
                   {/* Trực tuyến */}
                   {onlineMembers.map(m => (
-                    <div key={m._id} className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                    <div 
+                      key={m._id} 
+                      onClick={() => onViewProfile && onViewProfile(m._id)}
+                      className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors group"
+                    >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="relative">
                           <div className="w-8 h-8 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-sm overflow-hidden">
@@ -382,14 +403,18 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
                           </div>
                           <div className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white bg-[#31a24c]" />
                         </div>
-                        <span className="text-sm font-semibold truncate text-gray-800">{m.nickname || m.username}</span>
+                        <span className="text-sm font-semibold truncate text-gray-800 group-hover:text-[#0084ff] transition-colors">{m.nickname || m.username}</span>
                       </div>
                     </div>
                   ))}
 
                   {/* Ngoại tuyến */}
                   {offlineMembers.map(m => (
-                    <div key={m._id} className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors opacity-70">
+                    <div 
+                      key={m._id} 
+                      onClick={() => onViewProfile && onViewProfile(m._id)}
+                      className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors opacity-70 hover:opacity-100 group"
+                    >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="relative">
                           <div className="w-8 h-8 rounded-full bg-gray-300 text-gray-600 flex items-center justify-center font-bold text-sm overflow-hidden">
@@ -401,7 +426,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall }) {
                           </div>
                           <div className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white bg-gray-400" />
                         </div>
-                        <span className="text-sm font-semibold truncate text-gray-700">{m.nickname || m.username}</span>
+                        <span className="text-sm font-semibold truncate text-gray-700 group-hover:text-[#0084ff] transition-colors">{m.nickname || m.username}</span>
                       </div>
                     </div>
                   ))}

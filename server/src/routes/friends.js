@@ -1,4 +1,5 @@
 const router     = require('express').Router();
+const mongoose   = require('mongoose');
 const Friendship = require('../models/Friendship');
 const User       = require('../models/User');
 const Room       = require('../models/Room');
@@ -58,6 +59,10 @@ router.post('/request/:userId', protect, async (req, res) => {
   try {
     const receiverId = req.params.userId;
 
+    if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+      return res.status(400).json({ message: 'ID người dùng không hợp lệ' });
+    }
+
     if (receiverId === req.user._id.toString())
       return res.status(400).json({ message: 'Không thể kết bạn với chính mình' });
 
@@ -74,6 +79,16 @@ router.post('/request/:userId', protect, async (req, res) => {
         return res.status(400).json({ message: 'Đã là bạn bè' });
       if (exists.status === 'pending')
         return res.status(400).json({ message: 'Đã gửi lời mời rồi' });
+      if (exists.status === 'rejected') {
+        // Cập nhật lại lời mời nếu trước đó bị từ chối
+        exists.sender = req.user._id;
+        exists.receiver = receiverId;
+        exists.status = 'pending';
+        await exists.save();
+        await exists.populate('sender', 'username nickname avatar');
+        await exists.populate('receiver', 'username nickname avatar');
+        return res.status(200).json(exists);
+      }
     }
 
     const friendship = await Friendship.create({
@@ -156,6 +171,44 @@ router.put('/reject/:friendshipId', protect, async (req, res) => {
   }
 });
 
+// DELETE /api/friends/unfriend/:userId — hủy kết bạn với user
+router.delete('/unfriend/:userId', protect, async (req, res) => {
+  try {
+    const friendship = await Friendship.findOneAndDelete({
+      $or: [
+        { sender: req.user._id, receiver: req.params.userId },
+        { sender: req.params.userId, receiver: req.user._id },
+      ],
+      status: 'accepted',
+    });
+
+    if (!friendship)
+      return res.status(404).json({ message: 'Không tìm thấy quan hệ bạn bè' });
+
+    res.json({ message: 'Đã hủy kết bạn thành công' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE /api/friends/cancel/:userId — hủy lời mời kết bạn đã gửi
+router.delete('/cancel/:userId', protect, async (req, res) => {
+  try {
+    const friendship = await Friendship.findOneAndDelete({
+      sender: req.user._id,
+      receiver: req.params.userId,
+      status: 'pending',
+    });
+
+    if (!friendship)
+      return res.status(404).json({ message: 'Không tìm thấy lời mời kết bạn' });
+
+    res.json({ message: 'Đã hủy lời mời kết bạn' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/friends/dm/:userId — lấy phòng DM với user
 router.get('/dm/:userId', protect, async (req, res) => {
   try {
@@ -168,6 +221,145 @@ router.get('/dm/:userId', protect, async (req, res) => {
       return res.status(404).json({ message: 'Chưa có phòng DM' });
 
     res.json(dmRoom);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/friends/profile/:userId — lấy thông tin profile của user khác
+router.get('/profile/:userId', protect, async (req, res) => {
+  try {
+    const targetId = req.params.userId;
+    const currentId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(targetId)) {
+      return res.status(400).json({ message: 'ID người dùng không hợp lệ' });
+    }
+
+    const targetUser = await User.findById(targetId).select('-password');
+    if (!targetUser) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+    }
+
+    let friendshipStatus = 'none';
+    let friendshipId = null;
+    let customAlias = '';
+
+    if (currentId.toString() === targetId.toString()) {
+      friendshipStatus = 'self';
+    } else {
+      const friendship = await Friendship.findOne({
+        $or: [
+          { sender: currentId, receiver: targetId },
+          { sender: targetId, receiver: currentId },
+        ],
+      });
+
+      if (friendship) {
+        friendshipId = friendship._id;
+        const isSender = friendship.sender.toString() === currentId.toString();
+        customAlias = isSender ? (friendship.senderAlias || '') : (friendship.receiverAlias || '');
+
+        if (friendship.status === 'accepted') {
+          friendshipStatus = 'accepted';
+        } else if (friendship.status === 'pending') {
+          if (isSender) {
+            friendshipStatus = 'pending_sent';
+          } else {
+            friendshipStatus = 'pending_received';
+          }
+        }
+      }
+    }
+
+    // Lấy danh sách các nhóm chat chung (Mutual Rooms)
+    const currentObjId = new mongoose.Types.ObjectId(currentId);
+    const targetObjId = new mongoose.Types.ObjectId(targetId);
+
+    const mutualRooms = await Room.find({
+      isDM: { $ne: true },
+      $and: [
+        { members: { $in: [currentObjId, currentId.toString()] } },
+        { members: { $in: [targetObjId, targetId.toString()] } },
+      ],
+    })
+      .select('name avatar members createdAt')
+      .populate('members', 'username nickname avatar isOnline lastSeen');
+
+    const isFriendOrSelf = friendshipStatus === 'accepted' || friendshipStatus === 'self';
+
+    const maskEmail = (email) => {
+      if (!email) return '';
+      const [name, domain] = email.split('@');
+      if (!domain) return email;
+      if (name.length <= 2) return `${name}***@${domain}`;
+      return `${name.slice(0, 2)}***@${domain}`;
+    };
+
+    const maskPhone = (phone) => {
+      if (!phone) return '';
+      if (phone.length <= 4) return '***';
+      return `${phone.slice(0, 3)}***${phone.slice(-2)}`;
+    };
+
+    res.json({
+      user: {
+        _id: targetUser._id,
+        username: targetUser.username,
+        nickname: targetUser.nickname,
+        avatar: targetUser.avatar,
+        cover: targetUser.cover || '',
+        isOnline: targetUser.isOnline,
+        lastSeen: targetUser.lastSeen,
+        createdAt: targetUser.createdAt,
+        bio: targetUser.bio || '',
+        gender: isFriendOrSelf ? (targetUser.gender || '') : '',
+        dateOfBirth: isFriendOrSelf ? targetUser.dateOfBirth : null,
+        email: isFriendOrSelf ? targetUser.email : maskEmail(targetUser.email),
+        phone: isFriendOrSelf ? targetUser.phone : maskPhone(targetUser.phone),
+      },
+      friendshipStatus,
+      friendshipId,
+      customAlias,
+      mutualRooms,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/friends/alias/:userId — đặt biệt danh riêng cho bạn bè
+router.put('/alias/:userId', protect, async (req, res) => {
+  try {
+    const targetId = req.params.userId;
+    const currentId = req.user._id;
+    const { alias } = req.body;
+
+    const friendship = await Friendship.findOne({
+      $or: [
+        { sender: currentId, receiver: targetId },
+        { sender: targetId, receiver: currentId },
+      ],
+      status: 'accepted',
+    });
+
+    if (!friendship) {
+      return res.status(400).json({ message: 'Chỉ có thể đặt biệt danh cho bạn bè' });
+    }
+
+    const isSender = friendship.sender.toString() === currentId.toString();
+    if (isSender) {
+      friendship.senderAlias = (alias || '').trim();
+    } else {
+      friendship.receiverAlias = (alias || '').trim();
+    }
+
+    await friendship.save();
+
+    res.json({
+      message: 'Cập nhật biệt danh thành công',
+      customAlias: isSender ? friendship.senderAlias : friendship.receiverAlias,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

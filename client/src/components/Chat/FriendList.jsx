@@ -4,7 +4,7 @@ import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 
-export default function FriendList({ onSelectDM }) {
+export default function FriendList({ onSelectDM, onViewProfile }) {
   const { user } = useAuth();
   const token = sessionStorage.getItem('token');
   const { on, emit }            = useSocket(token);
@@ -149,10 +149,13 @@ export default function FriendList({ onSelectDM }) {
           {friends.map(f => {
             const friend = f.sender?._id?.toString() === user?._id?.toString() ? f.receiver : f.sender;
             return (
-              <div key={f._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 border-b border-gray-100 transition-all duration-150">
-                <div className="flex items-center gap-3">
+              <div key={f._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 border-b border-gray-100 transition-all duration-150 group">
+                <div 
+                  className="flex items-center gap-3 cursor-pointer"
+                  onClick={() => onViewProfile && friend?._id && onViewProfile(friend._id)}
+                >
                   <div className="relative">
-                    <div className="w-10 h-10 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-base overflow-hidden ring-1 ring-gray-100">
+                    <div className="w-10 h-10 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-base overflow-hidden ring-1 ring-gray-100 group-hover:ring-[#0084ff] transition-all">
                       {friend?.avatar ? (
                         <img src={friend.avatar} alt="avatar" className="w-10 h-10 rounded-full object-cover" />
                       ) : (
@@ -166,12 +169,23 @@ export default function FriendList({ onSelectDM }) {
                     }`} />
                   </div>
                   <div className="flex flex-col min-w-0 leading-tight">
-                    <span className="text-sm font-bold text-gray-900 truncate">{friend?.nickname || 'Người dùng'}</span>
+                    <span className="text-sm font-bold text-gray-900 truncate group-hover:text-[#0084ff] transition-colors">
+                      {friend?.nickname || 'Người dùng'}
+                    </span>
+                    <span className="text-[11px] text-gray-400">Xem hồ sơ</span>
                   </div>
                 </div>
-                <button className="bg-[#0084ff] hover:bg-[#0073de] text-white font-bold text-xs px-4 py-2 rounded-full transition-colors cursor-pointer" onClick={() => openDM(friend?._id)}>
-                  Nhắn tin
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs px-3 py-2 rounded-full transition-colors cursor-pointer"
+                    onClick={() => onViewProfile && friend?._id && onViewProfile(friend._id)}
+                  >
+                    Hồ sơ
+                  </button>
+                  <button className="bg-[#0084ff] hover:bg-[#0073de] text-white font-bold text-xs px-4 py-2 rounded-full transition-colors cursor-pointer" onClick={() => openDM(friend?._id)}>
+                    Nhắn tin
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -188,17 +202,32 @@ export default function FriendList({ onSelectDM }) {
             <p className="text-sm text-center text-gray-400 py-12 italic">Không có lời mời kết bạn nào</p>
           )}
           {requests.map(req => (
-            <div key={req._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 border-b border-gray-100 transition-all duration-150">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center font-bold text-base flex-shrink-0">
-                  {(req.sender?.nickname || req.sender?.username || '?')[0].toUpperCase()}
+            <div key={req._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 border-b border-gray-100 transition-all duration-150 group">
+              <div 
+                className="flex items-center gap-3 cursor-pointer"
+                onClick={() => onViewProfile && req.sender?._id && onViewProfile(req.sender._id)}
+              >
+                <div className="w-10 h-10 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center font-bold text-base flex-shrink-0 group-hover:ring-2 group-hover:ring-[#0084ff] transition-all overflow-hidden">
+                  {req.sender?.avatar ? (
+                    <img src={req.sender.avatar} alt="avatar" className="w-10 h-10 rounded-full object-cover" />
+                  ) : (
+                    <span>{(req.sender?.nickname || req.sender?.username || '?')[0].toUpperCase()}</span>
+                  )}
                 </div>
                 <div className="flex flex-col min-w-0 leading-tight">
-                  <span className="text-sm font-bold text-gray-900 truncate">{req.sender?.nickname || req.sender?.username}</span>
+                  <span className="text-sm font-bold text-gray-900 truncate group-hover:text-[#0084ff] transition-colors">
+                    {req.sender?.nickname || req.sender?.username}
+                  </span>
                   <span className="text-xs text-gray-500 truncate">Muốn kết nối với bạn</span>
                 </div>
               </div>
               <div className="flex gap-2">
+                <button 
+                  className="px-3 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-xs cursor-pointer flex items-center justify-center transition-colors"
+                  onClick={() => onViewProfile && req.sender?._id && onViewProfile(req.sender._id)}
+                >
+                  Hồ sơ
+                </button>
                 <button className="px-4 py-2 rounded-full bg-[#31a24c] hover:bg-[#28843e] text-white font-bold text-xs cursor-pointer flex items-center justify-center transition-colors" onClick={() => acceptRequest(req)}>Đồng ý</button>
                 <button className="px-4 py-2 rounded-full bg-[#f02849] hover:bg-[#d0203c] text-white font-bold text-xs cursor-pointer flex items-center justify-center transition-colors" onClick={() => rejectRequest(req._id)}>Từ chối</button>
               </div>
@@ -225,27 +254,45 @@ export default function FriendList({ onSelectDM }) {
             {searchResults.length === 0 && searchQ.length >= 2 && (
               <p className="text-xs text-center text-gray-400 py-4 italic">Không tìm thấy người dùng nào</p>
             )}
-            {searchResults.map(user => (
-              <div key={user._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 border-b border-gray-100 transition-all duration-150">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center font-bold text-base flex-shrink-0">
-                    {(user.nickname || '?')[0].toUpperCase()}
+            {searchResults.map(userItem => (
+              <div key={userItem._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 border-b border-gray-100 transition-all duration-150 group">
+                <div 
+                  className="flex items-center gap-3 cursor-pointer"
+                  onClick={() => onViewProfile && onViewProfile(userItem._id)}
+                >
+                  <div className="w-10 h-10 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center font-bold text-base flex-shrink-0 group-hover:ring-2 group-hover:ring-[#0084ff] transition-all overflow-hidden">
+                    {userItem.avatar ? (
+                      <img src={userItem.avatar} alt="avatar" className="w-10 h-10 rounded-full object-cover" />
+                    ) : (
+                      <span>{(userItem.nickname || '?')[0].toUpperCase()}</span>
+                    )}
                   </div>
                   <div className="flex flex-col min-w-0 leading-tight">
-                    <span className="text-sm font-bold text-gray-900 truncate">{user.nickname || 'Người dùng'}</span>
+                    <span className="text-sm font-bold text-gray-900 truncate group-hover:text-[#0084ff] transition-colors">
+                      {userItem.nickname || 'Người dùng'}
+                    </span>
+                    <span className="text-[11px] text-gray-400">Xem hồ sơ</span>
                   </div>
                 </div>
-                <button
-                  className={`font-semibold text-xs px-4 py-2 rounded-full transition-colors cursor-pointer ${
-                    user.requested 
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                      : 'bg-[#0084ff] text-white hover:bg-[#0073de]'
-                  }`}
-                  onClick={() => sendRequest(user._id)}
-                  disabled={user.requested}
-                >
-                  {user.requested ? 'Đã gửi yêu cầu' : 'Kết bạn'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    className="font-semibold text-xs px-3 py-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer"
+                    onClick={() => onViewProfile && onViewProfile(userItem._id)}
+                  >
+                    Hồ sơ
+                  </button>
+                  <button
+                    className={`font-semibold text-xs px-4 py-2 rounded-full transition-colors cursor-pointer ${
+                      userItem.requested 
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                        : 'bg-[#0084ff] text-white hover:bg-[#0073de]'
+                    }`}
+                    onClick={() => sendRequest(userItem._id)}
+                    disabled={userItem.requested}
+                  >
+                    {userItem.requested ? 'Đã gửi yêu cầu' : 'Kết bạn'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

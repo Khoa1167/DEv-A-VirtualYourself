@@ -7,12 +7,16 @@ export default function ProfileModal({ onClose }) {
   const [tab, setTab] = useState('info'); // 'info' | 'password'
   const [now] = useState(() => Date.now());
   const fileInputRef = useRef(null);
+  const coverInputRef = useRef(null);
 
   // ── Form thông tin ──
   const [form, setForm] = useState({
     nickname: user.nickname || '',
     email: user.email || '',
     phone: user.phone || '',
+    dateOfBirth: user.dateOfBirth ? new Date(user.dateOfBirth).toISOString().split('T')[0] : '',
+    gender: user.gender || '',
+    bio: user.bio || '',
   });
   const [nicknameStatus, setNicknameStatus] = useState('');
   const [infoError, setInfoError] = useState('');
@@ -69,6 +73,51 @@ export default function ProfileModal({ onClose }) {
       alert(err.response?.data?.message || 'Upload avatar thất bại');
     } finally {
       setAvatarLoading(false);
+    }
+  };
+
+  // ── Cover Image ──
+  const [coverPreview, setCoverPreview] = useState(user.cover || '');
+  const [coverFile, setCoverFile] = useState(null);
+  const [coverLoading, setCoverLoading] = useState(false);
+
+  const handleSelectCover = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setCoverFile(file);
+    setCoverPreview(URL.createObjectURL(file));
+  };
+
+  const handleUploadCover = async () => {
+    if (!coverFile) return;
+    setCoverLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('cover', coverFile);
+      const { data } = await api.post('/auth/cover', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setUser(data);
+      setCoverFile(null);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Upload ảnh bìa thất bại');
+    } finally {
+      setCoverLoading(false);
+    }
+  };
+
+  const handleDeleteCover = async () => {
+    if (!confirm('Bạn có chắc chắn muốn xóa ảnh bìa?')) return;
+    setCoverLoading(true);
+    try {
+      const { data } = await api.delete('/auth/cover');
+      setUser(data);
+      setCoverPreview('');
+      setCoverFile(null);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Xóa ảnh bìa thất bại');
+    } finally {
+      setCoverLoading(false);
     }
   };
 
@@ -134,21 +183,67 @@ export default function ProfileModal({ onClose }) {
         </div>
 
         <div className="overflow-y-auto max-h-[70vh] p-6 hide-scrollbar flex flex-col gap-5 bg-white">
-          {/* Avatar Section */}
+          {/* Cover & Avatar Header */}
           <div className="flex flex-col items-center gap-3">
+            <div className="relative w-full h-32 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 overflow-hidden shadow-xs group">
+              {coverPreview ? (
+                <img src={coverPreview} alt="cover" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center text-white/50 text-xs font-semibold">
+                  Chưa có ảnh bìa
+                </div>
+              )}
+              <div 
+                className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5 cursor-pointer backdrop-blur-[1px]"
+                onClick={() => coverInputRef.current?.click()}
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+                <span>Đổi ảnh bìa</span>
+              </div>
+
+              {user.cover && !coverFile && (
+                <button
+                  type="button"
+                  className="absolute top-2.5 right-2.5 z-10 bg-black/60 hover:bg-red-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-xs transition-colors cursor-pointer flex items-center gap-1 shadow-sm opacity-0 group-hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteCover();
+                  }}
+                  title="Xóa ảnh bìa"
+                >
+                  ✕ Xóa ảnh bìa
+                </button>
+              )}
+
+              <input
+                type="file"
+                ref={coverInputRef}
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleSelectCover}
+              />
+            </div>
+
+            {/* Avatar Section */}
             <div
-              className="group relative cursor-pointer shadow-md rounded-full"
-              onClick={() => fileInputRef.current.click()}
+              className="group relative cursor-pointer shadow-md rounded-full -mt-10"
+              onClick={() => fileInputRef.current?.click()}
             >
-              <div className="w-20 h-20 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-2xl overflow-hidden ring-2 ring-gray-100">
+              <div className="w-20 h-20 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-2xl overflow-hidden ring-4 ring-white shadow-md">
                 {avatarPreview ? (
                   <img src={avatarPreview} alt="avatar" className="object-cover w-full h-full" />
                 ) : (
                   <span>{(user.nickname || user.username)[0].toUpperCase()}</span>
                 )}
               </div>
-              <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center text-white text-base opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                📷
+              <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
               </div>
             </div>
 
@@ -159,16 +254,6 @@ export default function ProfileModal({ onClose }) {
               className="hidden"
               onChange={handleSelectAvatar}
             />
-
-            {avatarFile && (
-              <button
-                className="bg-[#0084ff] hover:bg-[#0073de] text-white font-bold text-xs px-4 py-1.5 rounded-full transition-colors cursor-pointer"
-                onClick={handleUploadAvatar}
-                disabled={avatarLoading}
-              >
-                {avatarLoading ? 'Đang tải lên...' : 'Lưu avatar mới'}
-              </button>
-            )}
           </div>
 
           {/* Tabs */}
@@ -248,6 +333,45 @@ export default function ProfileModal({ onClose }) {
                 />
               </div>
 
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Ngày sinh</label>
+                <input
+                  type="date"
+                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full cursor-pointer"
+                  value={form.dateOfBirth}
+                  onChange={e => setForm({ ...form, dateOfBirth: e.target.value })}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Giới tính</label>
+                <select
+                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full cursor-pointer"
+                  value={form.gender}
+                  onChange={e => setForm({ ...form, gender: e.target.value })}
+                >
+                  <option value="">-- Chưa chọn --</option>
+                  <option value="male">Nam</option>
+                  <option value="female">Nữ</option>
+                  <option value="other">Khác</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mô tả bản thân</label>
+                  <span className="text-[10px] text-gray-400 font-medium">{form.bio.length}/150</span>
+                </div>
+                <textarea
+                  rows={3}
+                  maxLength={150}
+                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full resize-none"
+                  placeholder="Giới thiệu một chút về bản thân bạn..."
+                  value={form.bio}
+                  onChange={e => setForm({ ...form, bio: e.target.value })}
+                />
+              </div>
+
               {infoError && (
                 <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
                   {infoError}
@@ -318,6 +442,66 @@ export default function ProfileModal({ onClose }) {
             </form>
           )}
         </div>
+
+        {/* Popup Floating Confirm Bar cho Ảnh bìa */}
+        {coverFile && (
+          <div className="absolute bottom-4 left-4 right-4 z-30 bg-gray-900/90 text-white backdrop-blur-md p-3.5 rounded-xl shadow-2xl flex items-center justify-between border border-white/10 animate-fade-in">
+            <div className="text-xs font-semibold">
+              <span>Xác nhận lưu ảnh bìa mới?</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCoverFile(null);
+                  setCoverPreview(user.cover || '');
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
+                disabled={coverLoading}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadCover}
+                disabled={coverLoading}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0084ff] hover:bg-[#0073de] text-white shadow-xs transition-all cursor-pointer flex items-center gap-1"
+              >
+                {coverLoading ? 'Đang lưu...' : 'Lưu ảnh bìa'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Popup Floating Confirm Bar cho Avatar */}
+        {avatarFile && (
+          <div className="absolute bottom-4 left-4 right-4 z-30 bg-gray-900/90 text-white backdrop-blur-md p-3.5 rounded-xl shadow-2xl flex items-center justify-between border border-white/10 animate-fade-in">
+            <div className="text-xs font-semibold">
+              <span>Xác nhận lưu avatar mới?</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAvatarFile(null);
+                  setAvatarPreview(user.avatar || '');
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
+                disabled={avatarLoading}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleUploadAvatar}
+                disabled={avatarLoading}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0084ff] hover:bg-[#0073de] text-white shadow-xs transition-all cursor-pointer flex items-center gap-1"
+              >
+                {avatarLoading ? 'Đang lưu...' : 'Lưu Avatar'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
