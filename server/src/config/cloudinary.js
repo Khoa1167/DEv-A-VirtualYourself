@@ -36,4 +36,56 @@ const uploadCover = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-module.exports = { cloudinary, uploadAvatar, uploadCover };
+/**
+ * Trích xuất public_id từ Cloudinary URL (bao gồm cả folder)
+ * URL ví dụ: https://res.cloudinary.com/cloud_name/image/upload/v1234567890/chat-app/avatars/abc123xyz.jpg
+ * Public ID trả về: "chat-app/avatars/abc123xyz"
+ */
+const getCloudinaryPublicId = (url) => {
+  if (!url || typeof url !== 'string' || !url.includes('cloudinary.com')) return null;
+  try {
+    const uploadIndex = url.indexOf('/upload/');
+    if (uploadIndex === -1) return null;
+
+    const pathAfterUpload = url.substring(uploadIndex + 8);
+    const parts = pathAfterUpload.split('/');
+
+    // Bỏ qua phần version v1234567890 nếu có
+    if (parts[0].startsWith('v') && !isNaN(parts[0].substring(1))) {
+      parts.shift();
+    }
+
+    const fullPathWithExt = parts.join('/');
+    const lastDotIndex = fullPathWithExt.lastIndexOf('.');
+    if (lastDotIndex !== -1) {
+      return fullPathWithExt.substring(0, lastDotIndex);
+    }
+    return fullPathWithExt;
+  } catch (err) {
+    console.error('Lỗi trích xuất public_id:', err);
+    return null;
+  }
+};
+
+/**
+ * Xóa tệp ảnh cũ trên Cloudinary thông qua URL
+ */
+const deleteCloudinaryImage = async (url) => {
+  const publicId = getCloudinaryPublicId(url);
+  if (!publicId) return;
+
+  try {
+    const result = await cloudinary.uploader.destroy(publicId);
+    console.log(`[Cloudinary Cleanup] Đã xóa ảnh cũ (${publicId}):`, result);
+  } catch (err) {
+    console.error(`[Cloudinary Cleanup] Lỗi khi xóa ảnh (${publicId}):`, err.message);
+  }
+};
+
+module.exports = {
+  cloudinary,
+  uploadAvatar,
+  uploadCover,
+  getCloudinaryPublicId,
+  deleteCloudinaryImage,
+};

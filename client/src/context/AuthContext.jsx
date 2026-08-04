@@ -1,21 +1,64 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
+import { getDeviceId, getPrivateKey, generateKeyPair, storePrivateKey, exportPublicKey } from '../utils/e2ee';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  // Khởi tạo loading dựa trên token có sẵn không
   const [user, setUser]       = useState(null);
   const [loading, setLoading] = useState(!!sessionStorage.getItem('token'));
+  const [needDevicePassword, setNeedDevicePassword] = useState(false);
+
+  // Helper đảm bảo thiết bị hiện tại được tạo và đăng ký E2EE Key
+  const initDeviceKey = async (currentPassword) => {
+    const deviceId = getDeviceId();
+    let privateKey = await getPrivateKey(deviceId);
+    let publicKeyJWK = '';
+
+    if (!privateKey) {
+      const keyPair = await generateKeyPair();
+      privateKey = keyPair.privateKey;
+      await storePrivateKey(deviceId, privateKey);
+      publicKeyJWK = await exportPublicKey(keyPair.publicKey);
+    } else {
+      // Nếu đã có privateKey, xuất publicKey tương ứng từ CryptoKey
+      const keyPair = await generateKeyPair(); // Fallback key rotation nếu cần
+      publicKeyJWK = await exportPublicKey(keyPair.publicKey);
+    }
+
+    const deviceName = `${navigator.platform} (${navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Browser'})`;
+
+    // Gọi API đăng ký/gia hạn thiết bị với mật khẩu xác nhận
+    const { data } = await api.put('/auth/devices', {
+      deviceId,
+      publicKey: publicKeyJWK,
+      deviceName,
+      currentPassword,
+    });
+
+    // Cập nhật Device Token mới vào sessionStorage
+    if (data.token) {
+      sessionStorage.setItem('token', data.token);
+    }
+
+    return data;
+  };
 
   useEffect(() => {
     const token = sessionStorage.getItem('token');
-    if (!token) return; // loading đã là false từ đầu
+    if (!token) return;
 
     api.get('/auth/me')
       .then(res => setUser(res.data))
-      .catch(() => sessionStorage.removeItem('token'))
+      .catch((err) => {
+        if (err.response?.data?.code === 'DEVICE_SESSION_INVALID') {
+          sessionStorage.removeItem('token');
+          setUser(null);
+        } else {
+          sessionStorage.removeItem('token');
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -23,6 +66,13 @@ export const AuthProvider = ({ children }) => {
     const { data } = await api.post('/auth/login', { username, password });
     sessionStorage.setItem('token', data.token);
     setUser(data.user);
+
+    // Tự động kích hoạt luồng đăng ký thiết bị với mật khẩu vừa nhập
+    try {
+      await initDeviceKey(password);
+    } catch (err) {
+      console.warn('[E2EE] Initial device registration warning:', err);
+    }
   };
 
   const logout = () => {
@@ -31,7 +81,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, setUser, loading, login, logout, initDeviceKey, needDevicePassword, setNeedDevicePassword }}>
       {children}
     </AuthContext.Provider>
   );

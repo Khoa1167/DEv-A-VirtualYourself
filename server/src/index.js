@@ -28,9 +28,11 @@ app.use(cors({ origin: clientOrigins, credentials: true }));
 app.use(express.json());
 
 // Routes — chỉ đăng ký 1 lần, trước server.listen()
-app.use('/api/auth',    require('./routes/auth'));
-app.use('/api/rooms',   require('./routes/rooms'));
-app.use('/api/friends', require('./routes/friends'));
+app.use('/api/auth',     require('./routes/auth'));
+app.use('/api/rooms',    require('./routes/rooms'));
+app.use('/api/friends',  require('./routes/friends'));
+app.use('/api/reports',  require('./routes/report'));
+app.use('/api/security', require('./routes/security'));
 
 app.get('/', (req, res) => {
   res.json({ message: '🚀 Chat server đang chạy!' });

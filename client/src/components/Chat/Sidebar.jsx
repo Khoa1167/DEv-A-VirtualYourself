@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
 import api from '../../services/api';
 import ProfileModal from '../Profile/ProfileModal';
+import KeyBackupModal from '../Settings/KeyBackupModal';
 
 // Lấy thông tin người đang chat cùng trong phòng DM
 const getDMPartner = (room, currentUser) => {
@@ -19,6 +20,7 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
   const [showJoin, setShowJoin] = useState(false);
   const [allRooms, setAllRooms] = useState([]);
   const [showProfile, setShowProfile] = useState(false);
+  const [showKeyBackup, setShowKeyBackup] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Load danh sách phòng của user
@@ -189,6 +191,13 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
               +
             </button>
             <button 
+              onClick={() => setShowKeyBackup(true)} 
+              className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center cursor-pointer transition-colors text-base"
+              title="Sao lưu & Khôi phục Khóa E2EE"
+            >
+              🔑
+            </button>
+            <button 
               onClick={logout} 
               className="w-8 h-8 rounded-full bg-red-50 hover:bg-red-100 flex items-center justify-center cursor-pointer transition-colors text-red-500"
               title="Đăng xuất"
@@ -199,6 +208,10 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
             </button>
           </div>
         </div>
+
+        {showKeyBackup && (
+          <KeyBackupModal onClose={() => setShowKeyBackup(false)} />
+        )}
 
         {/* Ô Tìm kiếm bo tròn Messenger */}
         <div className="relative">

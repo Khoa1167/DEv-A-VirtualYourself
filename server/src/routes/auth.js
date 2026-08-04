@@ -12,12 +12,19 @@ const {
   sendEmailChangeOTPEmail,
   sendEmailChangeNoticeEmail
 } = require('../config/mailer');
-const { uploadAvatar, uploadCover } = require('../config/cloudinary');
+const { uploadAvatar, uploadCover, deleteCloudinaryImage } = require('../config/cloudinary');
 
 const crypto = require('crypto');
 
-const genToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+// Bootstrap token (hạn 15m, chưa đăng ký device)
+const genBootstrapToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+
+// Device token (hạn 7d, gắn deviceId & tokenVersion per-device)
+const genDeviceToken = (id, deviceId, tokenVersion) =>
+  jwt.sign({ id, deviceId, tokenVersion }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+const genToken = genBootstrapToken;
 
 // Tạo OTP 6 số ngẫu nhiên an toàn bảo mật (Crypto Secure PRNG)
 const generateOTP = () =>
@@ -426,6 +433,7 @@ router.post('/avatar', protect, uploadAvatar.single('avatar'), async (req, res) 
     if (!req.file)
       return res.status(400).json({ message: 'Không có file ảnh' });
 
+    const oldAvatar = req.user.avatar;
     const avatarUrl = req.file.path; // Cloudinary trả về URL trong path
 
     const user = await User.findByIdAndUpdate(
@@ -433,6 +441,11 @@ router.post('/avatar', protect, uploadAvatar.single('avatar'), async (req, res) 
       { avatar: avatarUrl },
       { returnDocument: 'after' }
     );
+
+    // Dọn dẹp ảnh avatar cũ trên Cloudinary
+    if (oldAvatar && oldAvatar !== avatarUrl) {
+      deleteCloudinaryImage(oldAvatar);
+    }
 
     res.json(user);
   } catch (err) {
@@ -446,6 +459,7 @@ router.post('/cover', protect, uploadCover.single('cover'), async (req, res) => 
     if (!req.file)
       return res.status(400).json({ message: 'Không có file ảnh' });
 
+    const oldCover = req.user.cover;
     const coverUrl = req.file.path; // Cloudinary trả về URL trong path
 
     const user = await User.findByIdAndUpdate(
@@ -453,6 +467,11 @@ router.post('/cover', protect, uploadCover.single('cover'), async (req, res) => 
       { cover: coverUrl },
       { returnDocument: 'after' }
     );
+
+    // Dọn dẹp ảnh bìa cũ trên Cloudinary
+    if (oldCover && oldCover !== coverUrl) {
+      deleteCloudinaryImage(oldCover);
+    }
 
     res.json(user);
   } catch (err) {
@@ -463,11 +482,19 @@ router.post('/cover', protect, uploadCover.single('cover'), async (req, res) => 
 // ─── DELETE /api/auth/cover — xóa ảnh bìa ──────────────────────────────────
 router.delete('/cover', protect, async (req, res) => {
   try {
+    const oldCover = req.user.cover;
+
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { cover: '' },
       { returnDocument: 'after' }
     );
+
+    // Dọn dẹp tệp ảnh bìa trên Cloudinary khi gỡ cover
+    if (oldCover) {
+      deleteCloudinaryImage(oldCover);
+    }
+
     res.json(user);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -636,6 +663,279 @@ router.post('/reset-password', async (req, res) => {
   } catch (err) {
     console.error('reset-password error:', err);
     res.status(500).json({ message: 'Lỗi đặt lại mật khẩu, vui lòng thử lại' });
+  }
+});
+
+// Rate limit maps cho device management
+const failedPasswordMap = new Map();
+const mutationRateLimitMap = new Map();
+const renewalRateLimitMap = new Map();
+const getDevicesRateLimitMap = new Map();
+
+// Helper emit debounced key:changed event
+const debouncedKeyChangedTimers = new Map();
+const triggerDebouncedKeyChanged = (req, userId) => {
+  const io = req.app.get('socketio');
+  if (!io) return;
+  const uIdStr = userId.toString();
+  if (debouncedKeyChangedTimers.has(uIdStr)) {
+    clearTimeout(debouncedKeyChangedTimers.get(uIdStr));
+  }
+  const timer = setTimeout(() => {
+    debouncedKeyChangedTimers.delete(uIdStr);
+    io.emit('key:changed', { userId: uIdStr, timestamp: Date.now() });
+  }, 30000);
+  debouncedKeyChangedTimers.set(uIdStr, timer);
+};
+
+// ─── PUT /api/auth/devices — Đăng ký / gia hạn / xoay khóa thiết bị ──────────
+router.put('/devices', protect, async (req, res) => {
+  try {
+    const { deviceId, publicKey, deviceName, currentPassword } = req.body;
+    if (!deviceId || !publicKey || !currentPassword) {
+      return res.status(400).json({ message: 'Vui lòng cung cấp đầy đủ deviceId, publicKey và mật khẩu xác nhận' });
+    }
+
+    const userId = req.user._id.toString();
+    const now = Date.now();
+
+    // 1. Password Brute-Force Rate Limiter (Max 5 sai / 15m)
+    const failEntry = failedPasswordMap.get(userId) || { count: 0, lockUntil: 0 };
+    if (now < failEntry.lockUntil) {
+      const waitMins = Math.ceil((failEntry.lockUntil - now) / 60000);
+      return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng ký thiết bị do nhập sai mật khẩu quá 5 lần. Thử lại sau ${waitMins} phút.` });
+    }
+
+    const isMatch = await req.user.comparePassword(currentPassword);
+    if (!isMatch) {
+      failEntry.count += 1;
+      if (failEntry.count >= 5) {
+        failEntry.lockUntil = now + 15 * 60 * 1000;
+        failEntry.count = 0;
+      }
+      failedPasswordMap.set(userId, failEntry);
+      return res.status(401).json({ message: 'Mật khẩu xác nhận không chính xác' });
+    }
+    failedPasswordMap.delete(userId);
+
+    // Xử lý 3 nhánh bằng Transaction (kèm fallback nếu không có replica set)
+    let finalShouldEmit = false;
+    let finalTokenVersion = 0;
+    let retries = 3;
+
+    while (retries > 0) {
+      let shouldEmitThisTry = false;
+      let session = null;
+      let isReplicaSet = true;
+
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+      } catch {
+        isReplicaSet = false;
+        if (session) session.endSession();
+      }
+
+      try {
+        const user = isReplicaSet 
+          ? await User.findById(req.user._id).session(session)
+          : await User.findById(req.user._id);
+
+        const existingDevice = user.devices.find(d => d.deviceId === deviceId);
+
+        if (!existingDevice) {
+          // Nhánh 1: Device chưa tồn tại (Device Mới)
+          const activeDevicesCount = user.devices.filter(d => !d.isRevoked).length;
+          if (activeDevicesCount >= 5) {
+            if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
+            return res.status(400).json({ message: 'Tài khoản đã đạt giới hạn 5 thiết bị đang hoạt động. Vui lòng gỡ bớt thiết bị cũ.' });
+          }
+
+          const mutEntry = mutationRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
+          if (now > mutEntry.resetTime) { mutEntry.count = 0; mutEntry.resetTime = now + 3600000; }
+          if (mutEntry.count >= 3) {
+            if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
+            return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
+          }
+          mutEntry.count += 1;
+          mutationRateLimitMap.set(userId, mutEntry);
+
+          user.devices.push({
+            deviceId,
+            publicKey,
+            deviceName: deviceName || 'Unknown Device',
+            tokenVersion: 0,
+            isRevoked: false,
+            registeredAt: new Date(),
+            lastActiveAt: new Date(),
+          });
+          finalTokenVersion = 0;
+          shouldEmitThisTry = true;
+        } else if (existingDevice.isRevoked) {
+          // Nhánh 2: Device tồn tại và isRevoked === true (Reactivation)
+          const mutEntry = mutationRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
+          if (now > mutEntry.resetTime) { mutEntry.count = 0; mutEntry.resetTime = now + 3600000; }
+          if (mutEntry.count >= 3) {
+            if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
+            return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
+          }
+          mutEntry.count += 1;
+          mutationRateLimitMap.set(userId, mutEntry);
+
+          existingDevice.isRevoked = false;
+          existingDevice.revokedAt = null;
+          existingDevice.publicKey = publicKey;
+          existingDevice.deviceName = deviceName || existingDevice.deviceName;
+          existingDevice.tokenVersion += 1;
+          existingDevice.lastActiveAt = new Date();
+          finalTokenVersion = existingDevice.tokenVersion;
+          shouldEmitThisTry = true;
+        } else {
+          // Nhánh 3: Device tồn tại và isRevoked === false (Active Device)
+          if (existingDevice.publicKey === publicKey) {
+            // Case 3a: Gia hạn token 7d bình thường (publicKey không đổi)
+            const renewEntry = renewalRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
+            if (now > renewEntry.resetTime) { renewEntry.count = 0; renewEntry.resetTime = now + 3600000; }
+            if (renewEntry.count >= 30) {
+              if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
+              return res.status(429).json({ message: 'Quá nhiều yêu cầu gia hạn thiết bị. Thử lại sau.' });
+            }
+            renewEntry.count += 1;
+            renewalRateLimitMap.set(userId, renewEntry);
+
+            existingDevice.lastActiveAt = new Date();
+            if (deviceName) existingDevice.deviceName = deviceName;
+            finalTokenVersion = existingDevice.tokenVersion;
+            shouldEmitThisTry = false;
+          } else {
+            // Case 3b: Key Rotation / Mất Storage (publicKey khác cũ)
+            const mutEntry = mutationRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
+            if (now > mutEntry.resetTime) { mutEntry.count = 0; mutEntry.resetTime = now + 3600000; }
+            if (mutEntry.count >= 3) {
+              if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
+              return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
+            }
+            mutEntry.count += 1;
+            mutationRateLimitMap.set(userId, mutEntry);
+
+            existingDevice.publicKey = publicKey;
+            if (deviceName) existingDevice.deviceName = deviceName;
+            existingDevice.tokenVersion += 1;
+            existingDevice.lastActiveAt = new Date();
+            finalTokenVersion = existingDevice.tokenVersion;
+            shouldEmitThisTry = true;
+          }
+        }
+
+        if (isReplicaSet && session) {
+          await user.save({ session });
+          await session.commitTransaction();
+          session.endSession();
+        } else {
+          await user.save();
+        }
+
+        finalShouldEmit = shouldEmitThisTry;
+        break;
+      } catch (err) {
+        if (isReplicaSet && session) {
+          await session.abortTransaction();
+          session.endSession();
+        }
+        if (err.hasErrorLabel && err.hasErrorLabel('TransientTransactionError') && retries > 1) {
+          retries--;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (finalShouldEmit) {
+      triggerDebouncedKeyChanged(req, req.user._id);
+    }
+
+    const deviceToken = genDeviceToken(req.user._id, deviceId, finalTokenVersion);
+    res.json({
+      message: 'Đăng ký thiết bị thành công',
+      token: deviceToken,
+      deviceId,
+      tokenVersion: finalTokenVersion
+    });
+  } catch (err) {
+    console.error('PUT /api/auth/devices error:', err);
+    res.status(500).json({ message: 'Lỗi đăng ký thiết bị' });
+  }
+});
+
+// ─── DELETE /api/auth/devices/:deviceId — Soft delete gỡ bỏ thiết bị ─────────
+router.delete('/devices/:deviceId', protect, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const user = req.user;
+
+    const device = user.devices.find(d => d.deviceId === deviceId);
+    if (!device) {
+      return res.status(404).json({ message: 'Không tìm thấy thiết bị cần gỡ' });
+    }
+
+    if (device.isRevoked) {
+      return res.json({ message: 'Thiết bị này đã bị gỡ trước đó' });
+    }
+
+    device.isRevoked = true;
+    device.revokedAt = new Date();
+    device.tokenVersion += 1;
+
+    await user.save();
+
+    triggerDebouncedKeyChanged(req, user._id);
+
+    res.json({ message: 'Đã gỡ bỏ thiết bị thành công', deviceId });
+  } catch (err) {
+    console.error('DELETE /api/auth/devices error:', err);
+    res.status(500).json({ message: 'Lỗi gỡ bỏ thiết bị' });
+  }
+});
+
+// ─── GET /api/auth/devices — Lấy danh sách thiết bị của chính user hiện tại ───
+router.get('/devices', protect, async (req, res) => {
+  try {
+    const includeRevoked = req.query.includeRevoked === 'true';
+    const devices = req.user.devices.filter(d => includeRevoked || !d.isRevoked);
+    res.json(devices);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ─── GET /api/users/:userId/devices — Lấy publicKeys các thiết bị của user khác
+router.get('/users/:userId/devices', protect, async (req, res) => {
+  try {
+    const callerId = req.user._id.toString();
+    const now = Date.now();
+
+    // Rate limit 60 req/phút/user
+    const limitEntry = getDevicesRateLimitMap.get(callerId) || { count: 0, resetTime: now + 60000 };
+    if (now > limitEntry.resetTime) { limitEntry.count = 0; limitEntry.resetTime = now + 60000; }
+    limitEntry.count += 1;
+    getDevicesRateLimitMap.set(callerId, limitEntry);
+
+    if (limitEntry.count > 60) {
+      return res.status(429).json({ message: 'Quá nhiều yêu cầu truy vấn thiết bị' });
+    }
+
+    const targetUser = await User.findById(req.params.userId).select('devices');
+    if (!targetUser) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+    }
+
+    const activeDevices = targetUser.devices
+      .filter(d => !d.isRevoked)
+      .map(d => ({ deviceId: d.deviceId, publicKey: d.publicKey }));
+
+    res.json(activeDevices);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 

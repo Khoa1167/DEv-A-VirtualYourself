@@ -4,7 +4,9 @@ import { useSocket } from '../../hooks/useSocket';
 import MessageItem from './MessageItem';
 import MessageInput from './MessageInput';
 import ForwardModal from './ForwardModal';
+import SafetyNumberModal from './SafetyNumberModal';
 import api from '../../services/api';
+import { encryptMessageForRoom, decryptMessage, getDeviceId } from '../../utils/e2ee';
 
 // Lấy thông tin người đang chat cùng trong phòng DM
 const getDMPartner = (room, currentUser) => {
@@ -26,6 +28,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   const [showMembers, setShowMembers] = useState(true);
   const [forwardTargetMessage, setForwardTargetMessage] = useState(null);
   const [showForward, setShowForward] = useState(false);
+  const [showSafetyNumber, setShowSafetyNumber] = useState(false);
   const bottomRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const containerRef = useRef(null);
@@ -41,13 +44,27 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
     setShowScrollBottom(isFar);
   };
 
+  // Decrypt tin nhắn helper
+  const processDecryption = async (rawMessages) => {
+    const devId = getDeviceId();
+    const decrypted = await Promise.all(
+      rawMessages.map(async (m) => {
+        if (m.isDeleted) return m;
+        const text = await decryptMessage(m, devId);
+        return { ...m, decryptedText: text, content: text };
+      })
+    );
+    return decrypted;
+  };
+
   // Load tin nhắn khi chọn phòng mới
   useEffect(() => {
     if (!room) return;
 
     api.get(`/rooms/${room._id}/messages?page=1&limit=30`)
-      .then(res => {
-        setMessages(res.data);
+      .then(async res => {
+        const decrypted = await processDecryption(res.data);
+        setMessages(decrypted);
         setHasMore(res.data.length === 30);
         setTimeout(() => bottomRef.current?.scrollIntoView(), 100);
       });
@@ -60,9 +77,12 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
     emit('room:join', room._id);
 
     // Nhận tin nhắn mới
-    const offNew = on('message:new', (msg) => {
+    const offNew = on('message:new', async (msg) => {
       if (msg.room?.toString() === room._id?.toString()) {
-        setMessages(prev => [...prev, msg]);
+        const devId = getDeviceId();
+        const decryptedText = await decryptMessage(msg, devId);
+        const processedMsg = { ...msg, decryptedText, content: decryptedText };
+        setMessages(prev => [...prev, processedMsg]);
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }
     });
@@ -120,10 +140,44 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
 
   const roomId = room?._id;
 
-  const handleSend = useCallback((content, replyToId, type = 'text', fileName = null) => {
-    emit('message:send', { roomId, content, type, replyTo: replyToId, fileName });
-    setReplyTo(null);
-  }, [emit, roomId]);
+  const handleSend = useCallback(async (content, replyToId, type = 'text', fileName = null) => {
+    try {
+      // 1. Thu thập public keys của tất cả thành viên trong phòng
+      const allDevicePublicKeys = [];
+      if (room && room.members) {
+        for (const member of room.members) {
+          try {
+            const { data: devices } = await api.get(`/users/${member._id}/devices`);
+            if (Array.isArray(devices)) {
+              allDevicePublicKeys.push(...devices);
+            }
+          } catch (err) {
+            console.warn(`Lỗi khi lấy public key của member ${member._id}:`, err);
+          }
+        }
+      }
+
+      // 2. Mã hóa tin nhắn E2EE phía Client
+      const encryptedPayload = await encryptMessageForRoom(content, allDevicePublicKeys);
+
+      // 3. Gửi payload bản mã lên Server qua Socket
+      emit('message:send', {
+        roomId,
+        content: encryptedPayload.content,
+        iv: encryptedPayload.iv,
+        tag: encryptedPayload.tag,
+        encryptedKeys: encryptedPayload.encryptedKeys,
+        type,
+        replyTo: replyToId,
+        fileName
+      });
+
+      setReplyTo(null);
+    } catch (err) {
+      console.error('[E2EE] Send error:', err);
+      alert('Không thể mã hóa tin nhắn E2EE');
+    }
+  }, [emit, roomId, room]);
 
   const handleTyping = useCallback((isTyping) => {
     emit(isTyping ? 'typing:start' : 'typing:stop', { roomId });
@@ -240,16 +294,24 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Nút gọi thoại và video 1-1 */}
+            {/* Nút mã an toàn E2EE & Nút gọi thoại 1-1 */}
             {room.isDM && dmPartner && (
               <>
-                <button 
-                  onClick={() => onInitiateCall(dmPartner, 'audio')}
-                  className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-600 transition-colors cursor-pointer active:scale-95"
-                  title="Gọi thoại"
+                <button
+                  onClick={() => setShowSafetyNumber(true)}
+                  className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center cursor-pointer transition-colors text-base"
+                  title="Mã An Toàn E2EE (Safety Number)"
                 >
-                  <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                  🔐
+                </button>
+
+                <button 
+                  onClick={() => onInitiateCall && onInitiateCall(dmPartner._id, 'audio')}
+                  className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center cursor-pointer transition-colors"
+                  title="Bắt đầu cuộc gọi thoại"
+                >
+                  <svg className="w-5 h-5 text-[#0084ff]" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
                   </svg>
                 </button>
                 <button 
@@ -443,6 +505,13 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
         messageToForward={forwardTargetMessage}
         onForward={handleForwardSend}
       />
+      {showSafetyNumber && room.isDM && dmPartner && (
+        <SafetyNumberModal
+          user={user}
+          contactUser={dmPartner}
+          onClose={() => setShowSafetyNumber(false)}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,15 @@ const { encrypt, decrypt } = require('../utils/crypto');
 
 
 const setupSocket = (io) => {
+  /**
+   * Rate Limiting per userId: tối đa 8 tin nhắn / 5 giây (cộng dồn qua tất cả socket/tab của cùng user).
+   * 
+   * [GHI CHÚ KIẾN TRÚC SCALABILITY]:
+   * Hiện tại userMessageRateMap là in-memory Map cho single-instance Node.js process.
+   * Khi ứng dụng scale ngang (nhiều server instance đứng sau Load Balancer), bộ đếm này
+   * sẽ chuyển sang sử dụng Redis (`INCR` + `EXPIRE` lệnh nguyên tố) để đếm tập trung giữa các instances.
+   */
+  const userMessageRateMap = new Map();
 
   io.use(async (socket, next) => {
     try {
@@ -39,8 +48,30 @@ const setupSocket = (io) => {
 
     // ===== EVENTS: TIN NHẮN =====
 
-    socket.on('message:send', async ({ roomId, content, type, replyTo, fileName, forwardedFrom }) => {
+    socket.on('message:send', async ({ roomId, content, iv, tag, encryptedKeys, type, replyTo, fileName, forwardedFrom }) => {
       try {
+        // Rate Limiting Check theo userId
+        const uIdStr = userId.toString();
+        const now = Date.now();
+        const userLimit = userMessageRateMap.get(uIdStr) || { count: 0, resetTime: now + 5000 };
+
+        if (now > userLimit.resetTime) {
+          userLimit.count = 0;
+          userLimit.resetTime = now + 5000;
+        }
+
+        userLimit.count += 1;
+        userMessageRateMap.set(uIdStr, userLimit);
+
+        if (userLimit.count > 8) {
+          const retryAfter = Math.ceil((userLimit.resetTime - now) / 1000);
+          return socket.emit('error', {
+            message: `Bạn đang gửi tin nhắn quá nhanh. Vui lòng thử lại sau ${retryAfter} giây.`,
+            code: 'RATE_LIMITED',
+            retryAfter
+          });
+        }
+
         const room = await Room.findOne({ _id: roomId, members: userId });
         if (!room) return socket.emit('error', { message: 'Không có quyền' });
 
@@ -53,13 +84,12 @@ const setupSocket = (io) => {
           }
         }
 
-        // Mã hóa nội dung tin nhắn trước khi lưu vào database
-        const encrypted = encrypt(content);
+        // Zero-Knowledge Relay: Lưu trực tiếp bản mã từ Client
         const msg = await Message.create({
-          content: encrypted.content,
-          iv: encrypted.iv,
-          tag: encrypted.tag,
-          encryptedKey: encrypted.encryptedKey,
+          content: content || '',
+          iv: iv || null,
+          tag: tag || null,
+          encryptedKeys: encryptedKeys || {},
           sender: userId,
           room: roomId,
           type: type || 'text',
@@ -72,33 +102,21 @@ const setupSocket = (io) => {
         if (replyTo) {
           await msg.populate({
             path: 'replyTo',
-            select: 'sender content type fileName isDeleted iv tag encryptedKey',
+            select: 'sender content type fileName isDeleted iv tag encryptedKeys',
             populate: { path: 'sender', select: 'username nickname avatar' }
           });
         }
         if (forwardedFrom) {
           await msg.populate({
             path: 'forwardedFrom',
-            select: 'sender content iv tag encryptedKey',
+            select: 'sender content iv tag encryptedKeys',
             populate: { path: 'sender', select: 'username nickname' }
           });
         }
         await Room.findByIdAndUpdate(roomId, { lastMessage: msg._id });
 
-        // Gửi bản rõ qua Socket để client hiển thị ngay lập tức
+        // Zero-Knowledge Relay: Trả nguyên bản mã cho tất cả client tự giải mã
         const clientMsg = msg.toObject();
-        clientMsg.content = content; // Trả về nội dung chưa mã hóa
-        clientMsg.isEncryptedAtRest = true;
-
-        if (clientMsg.replyTo && clientMsg.replyTo.content) {
-          clientMsg.replyTo.content = decrypt(clientMsg.replyTo.content, clientMsg.replyTo.iv, clientMsg.replyTo.tag, clientMsg.replyTo.encryptedKey);
-          clientMsg.replyTo.isEncryptedAtRest = true;
-        }
-        if (clientMsg.forwardedFrom && clientMsg.forwardedFrom.content) {
-          clientMsg.forwardedFrom.content = decrypt(clientMsg.forwardedFrom.content, clientMsg.forwardedFrom.iv, clientMsg.forwardedFrom.tag, clientMsg.forwardedFrom.encryptedKey);
-          clientMsg.forwardedFrom.isEncryptedAtRest = true;
-        }
-
         io.to(roomId).emit('message:new', clientMsg);
       } catch (err) {
         socket.emit('error', { message: err.message });

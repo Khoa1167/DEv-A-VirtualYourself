@@ -16,7 +16,20 @@ const userSchema = new mongoose.Schema({
   cover:             { type: String, default: '' },
   isOnline:          { type: Boolean, default: false },
   lastSeen:          { type: Date, default: Date.now },
-  nicknameChangedAt: { type: Date, default: null },
+  reportTrustScore:            { type: Number, default: 100, min: 10, max: 100 }, // Điểm tin cậy báo cáo (Sàn tối thiểu: 10)
+  reportCooldownAt:            { type: Date, default: null },                   // Cooldown nếu bị phát hiện spam report
+  dailyTrustScoreIncrease:     { type: Number, default: 0 },                    // Điểm đã cộng trong ngày (Tối đa +15/ngày)
+  lastTrustScoreIncreaseDate:  { type: String, default: '' },                   // Ngày cộng điểm gần nhất (YYYY-MM-DD)
+  devices: [{
+    deviceId:     { type: String, required: true },
+    publicKey:    { type: String, required: true },
+    deviceName:   { type: String, default: 'Unknown Device' },
+    tokenVersion: { type: Number, default: 0 },
+    isRevoked:    { type: Boolean, default: false },
+    revokedAt:    { type: Date, default: null },
+    registeredAt: { type: Date, default: Date.now },
+    lastActiveAt: { type: Date, default: Date.now },
+  }],
 }, { timestamps: true });
 
 userSchema.pre('save', async function() {

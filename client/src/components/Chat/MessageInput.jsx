@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import api from '../../services/api';
+import { scanLinksInText } from '../../utils/securityScan';
 
 export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply }) {
   const [content, setContent]   = useState('');
@@ -93,9 +94,40 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
         }
       }
 
-      // 2. Gửi tin nhắn chữ tiếp theo
+      // 2. Gửi tin nhắn chữ tiếp theo (Có quét link bảo mật)
       if (hasText) {
-        onSend(content.trim(), replyTo?._id, 'text');
+        const trimmed = content.trim();
+        const scanResult = scanLinksInText(trimmed);
+
+        if (scanResult.hasWarning) {
+          const warningMsg = scanResult.warnings.map(w => w.message).join('\n');
+          const confirmSend = window.confirm(
+            `⚠️ CẢNH BÁO AN TOÀN LIÊN KẾT:\n\n${warningMsg}\n\nBạn có chắc chắn vẫn muốn gửi tin nhắn này không?`
+          );
+          if (!confirmSend) {
+            setIsSending(false);
+            return;
+          }
+        }
+
+        if (scanResult.urls.length > 0) {
+          try {
+            const { data } = await api.post('/security/check-link', { url: scanResult.urls[0] });
+            if (data && !data.safe) {
+              const confirmUnsafe = window.confirm(
+                `⚠️ CẢNH BÁO BẢO MẬT: Liên kết (${scanResult.urls[0]}) đã bị đánh dấu nguy hiểm (${data.threatType || 'Độc hại'}).\n\nBạn có muốn HỦY gửi tin nhắn này không?`
+              );
+              if (confirmUnsafe) {
+                setIsSending(false);
+                return;
+              }
+            }
+          } catch {
+            // Graceful fallback
+          }
+        }
+
+        onSend(trimmed, replyTo?._id, 'text');
         setContent('');
       }
 

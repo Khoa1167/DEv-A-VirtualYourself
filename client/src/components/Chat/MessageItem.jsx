@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
+import ReportModal from './ReportModal';
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢'];
 
@@ -12,6 +13,7 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
   const senderName = message.sender.nickname || message.sender.username;
 
   const [showActions, setShowActions] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
 
@@ -375,12 +377,15 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
                     Chỉnh sửa
                   </button>
                 )}
-                {isOwn && (
+                {!isOwn && (
                   <button
-                    onClick={handleRecall}
+                    onClick={() => {
+                      setShowActions(false);
+                      setShowReportModal(true);
+                    }}
                     className="w-full text-left px-3 py-1.5 text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
                   >
-                    Thu hồi
+                    🚩 Báo cáo
                   </button>
                 )}
               </div>
@@ -389,6 +394,14 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
         </div>
 
       </div>
+
+      {showReportModal && (
+        <ReportModal
+          message={message}
+          onClose={() => setShowReportModal(false)}
+          onSuccess={(msg) => alert(msg)}
+        />
+      )}
     </div>
   );
 }
