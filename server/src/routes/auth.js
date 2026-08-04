@@ -4,8 +4,14 @@ const bcrypt      = require('bcryptjs');
 const User          = require('../models/User');
 const PendingUser   = require('../models/PendingUser');
 const PasswordReset = require('../models/PasswordReset');
+const EmailChange   = require('../models/EmailChange');
 const { protect }   = require('../middleware/auth');
-const { sendOTPEmail, sendResetPasswordOTPEmail } = require('../config/mailer');
+const {
+  sendOTPEmail,
+  sendResetPasswordOTPEmail,
+  sendEmailChangeOTPEmail,
+  sendEmailChangeNoticeEmail
+} = require('../config/mailer');
 const { uploadAvatar, uploadCover } = require('../config/cloudinary');
 
 const crypto = require('crypto');
@@ -44,15 +50,16 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ message: 'Email đã được sử dụng' });
 
     // Tạo OTP và hash password
-    const otp          = generateOTP();
+    const otp            = generateOTP();
+    const hashedOtp      = hashOTP(otp);
     const hashedPassword = await bcrypt.hash(password, 12);
-    const expiresAt    = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+    const expiresAt      = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
 
     // Xóa pending user cũ nếu có, tạo mới hoàn toàn
     await PendingUser.deleteOne({ email });
     await PendingUser.create({
       username, hashedPassword, email,
-      phone: phone || '', otp, expiresAt, attempts: 0,
+      phone: phone || '', otp: hashedOtp, expiresAt, attempts: 0,
     });
 
     // Gửi email OTP
@@ -90,8 +97,9 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ message: 'Quá nhiều lần nhập sai, vui lòng đăng ký lại' });
     }
 
-    // Kiểm tra OTP đúng không
-    if (pending.otp !== otp) {
+    // Kiểm tra OTP đúng không bằng hash SHA-256
+    const hashedInputOtp = hashOTP(otp.trim());
+    if (pending.otp !== hashedInputOtp) {
       pending.attempts += 1;
       await pending.save();
       const remaining = 5 - pending.attempts;
@@ -155,6 +163,13 @@ router.post('/set-nickname', protect, async (req, res) => {
     if (!nickname || nickname.trim().length < 2)
       return res.status(400).json({ message: 'Nickname phải có ít nhất 2 ký tự' });
 
+    // Chỉ cho phép thiết lập nickname lần đầu khi mới đăng ký tài khoản
+    if (req.user.nicknameChangedAt) {
+      return res.status(400).json({
+        message: 'Bạn đã thiết lập tên hiển thị trước đó. Vui lòng đổi tên trong trang cá nhân.'
+      });
+    }
+
     const exists = await User.findOne({
       nickname, _id: { $ne: req.user._id }
     });
@@ -217,35 +232,167 @@ router.put('/profile', protect, async (req, res) => {
     }
 
     if (email && email !== req.user.email) {
-      const exists = await User.findOne({ email, _id: { $ne: req.user._id } });
-      if (exists)
-        return res.status(400).json({ message: 'Email đã được sử dụng' });
-      updates.email = email;
+      return res.status(400).json({
+        message: 'Để đổi email, vui lòng sử dụng tính năng Đổi Email riêng có xác thực bảo mật.'
+      });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+    }
+
+    if (updates.nickname) {
+      user.nickname = updates.nickname;
+      user.nicknameChangedAt = updates.nicknameChangedAt;
     }
 
     if (phone !== undefined) {
-      updates.phone = phone;
+      user.phone = phone;
     }
 
     if (dateOfBirth !== undefined) {
-      updates.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+      user.dateOfBirth = dateOfBirth ? String(dateOfBirth) : '';
     }
 
     if (gender !== undefined) {
-      updates.gender = ['male', 'female', 'other'].includes(gender) ? gender : '';
+      user.gender = ['male', 'female', 'other'].includes(gender) ? gender : '';
     }
 
     if (bio !== undefined) {
-      updates.bio = bio.slice(0, 150);
+      user.bio = bio.slice(0, 150);
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id, updates, { returnDocument: 'after' }
-    );
+    await user.save();
 
     res.json(user);
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// ─── POST /api/auth/request-email-change — Yêu cầu đổi email ────────────────
+router.post('/request-email-change', protect, async (req, res) => {
+  try {
+    const { currentPassword, newEmail } = req.body;
+    if (!currentPassword || !newEmail)
+      return res.status(400).json({ message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và email mới' });
+
+    const lowerNewEmail = newEmail.toLowerCase().trim();
+    if (lowerNewEmail === req.user.email.toLowerCase()) {
+      return res.status(400).json({ message: 'Email mới trùng với email hiện tại' });
+    }
+
+    // Kiểm tra mật khẩu hiện tại
+    const user = await User.findById(req.user._id);
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch)
+      return res.status(401).json({ message: 'Mật khẩu hiện tại không đúng' });
+
+    // Kiểm tra email mới đã tồn tại chưa
+    const emailExists = await User.findOne({ email: lowerNewEmail });
+    if (emailExists)
+      return res.status(400).json({ message: 'Email này đã được sử dụng bởi tài khoản khác' });
+
+    // Rate Limiting: 60 giây giữa các lần yêu cầu OTP đổi email
+    const existingRecord = await EmailChange.findOne({ userId: req.user._id });
+    if (existingRecord && existingRecord.updatedAt) {
+      const secondsSinceLastRequest = (Date.now() - new Date(existingRecord.updatedAt).getTime()) / 1000;
+      if (secondsSinceLastRequest < 60) {
+        return res.status(429).json({
+          message: `Vui lòng chờ ${Math.ceil(60 - secondsSinceLastRequest)} giây trước khi gửi lại mã`
+        });
+      }
+    }
+
+    const otp = generateOTP();
+    const hashedOtp = hashOTP(otp);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+
+    await EmailChange.findOneAndUpdate(
+      { userId: req.user._id },
+      {
+        newEmail: lowerNewEmail,
+        otp: hashedOtp,
+        expiresAt,
+        attempts: 0,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    // Gửi OTP về Email Mới để xác nhận quyền sở hữu hộp thư mới
+    try {
+      await sendEmailChangeOTPEmail(lowerNewEmail, otp);
+      console.log(`[SECURITY DEBUG] Email Change OTP for new email ${lowerNewEmail}: ${otp}`);
+    } catch (mailErr) {
+      console.error('Lỗi gửi mail OTP đổi email:', mailErr.message);
+    }
+
+    // Gửi email cảnh báo bảo mật tới Email CŨ
+    try {
+      await sendEmailChangeNoticeEmail(req.user.email, lowerNewEmail);
+    } catch (noticeErr) {
+      console.error('Lỗi gửi mail cảnh báo bảo mật tới email cũ:', noticeErr.message);
+    }
+
+    res.json({ message: 'Mã OTP xác thực đã được gửi tới email mới của bạn. Chúng tôi cũng đã gửi một email cảnh báo bảo mật tới địa chỉ email hiện tại.' });
+  } catch (err) {
+    console.error('request-email-change error:', err);
+    res.status(500).json({ message: 'Lỗi hệ thống, vui lòng thử lại sau' });
+  }
+});
+
+// ─── POST /api/auth/verify-email-change — Xác nhận mã OTP đổi email ─────────
+router.post('/verify-email-change', protect, async (req, res) => {
+  try {
+    const { newEmail, otp } = req.body;
+    if (!newEmail || !otp)
+      return res.status(400).json({ message: 'Thiếu email mới hoặc mã OTP' });
+
+    const lowerNewEmail = newEmail.toLowerCase().trim();
+    const record = await EmailChange.findOne({ userId: req.user._id, newEmail: lowerNewEmail });
+    if (!record)
+      return res.status(400).json({ message: 'Không tìm thấy yêu cầu thay đổi email' });
+
+    if (new Date() > record.expiresAt) {
+      await EmailChange.deleteOne({ _id: record._id });
+      return res.status(400).json({ message: 'Mã OTP đã hết hạn, vui lòng thực hiện lại' });
+    }
+
+    if (record.attempts >= 5) {
+      await EmailChange.deleteOne({ _id: record._id });
+      return res.status(400).json({ message: 'Quá nhiều lần nhập sai mã OTP, vui lòng thực hiện lại' });
+    }
+
+    const hashedInputOtp = hashOTP(otp.trim());
+    if (record.otp !== hashedInputOtp) {
+      record.attempts += 1;
+      await record.save();
+      const remaining = 5 - record.attempts;
+      return res.status(400).json({ message: `Mã OTP không chính xác, còn ${remaining} lần thử` });
+    }
+
+    // Kiểm tra lại lần nữa phòng trường hợp email vừa bị chiếm trong khi chờ nhập OTP
+    const emailExists = await User.findOne({ email: lowerNewEmail, _id: { $ne: req.user._id } });
+    if (emailExists) {
+      await EmailChange.deleteOne({ _id: record._id });
+      return res.status(400).json({ message: 'Email này đã được tài khoản khác sử dụng' });
+    }
+
+    // Cập nhật email mới vào User
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { email: lowerNewEmail },
+      { returnDocument: 'after' }
+    );
+
+    // Xóa record EmailChange
+    await EmailChange.deleteOne({ _id: record._id });
+
+    res.json({ message: 'Đổi email thành công!', user: updatedUser });
+  } catch (err) {
+    console.error('verify-email-change error:', err);
+    res.status(500).json({ message: 'Lỗi xác thực đổi email, vui lòng thử lại' });
   }
 });
 

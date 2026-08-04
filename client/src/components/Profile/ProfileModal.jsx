@@ -23,6 +23,14 @@ export default function ProfileModal({ onClose }) {
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoSuccess, setInfoSuccess] = useState('');
 
+  // ── Form đổi Email có xác thực OTP ──
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailStep, setEmailStep] = useState(1); // 1: password + newEmail, 2: OTP
+  const [emailForm, setEmailForm] = useState({ currentPassword: '', newEmail: '', otp: '' });
+  const [emailError, setEmailError] = useState('');
+  const [emailSuccess, setEmailSuccess] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+
   // ── Form đổi mật khẩu ──
   const [pwForm, setPwForm] = useState({
     currentPassword: '', newPassword: '', confirmPassword: ''
@@ -118,6 +126,48 @@ export default function ProfileModal({ onClose }) {
       alert(err.response?.data?.message || 'Xóa ảnh bìa thất bại');
     } finally {
       setCoverLoading(false);
+    }
+  };
+
+  const handleRequestEmailChange = async (e) => {
+    e.preventDefault();
+    setEmailError('');
+    setEmailSuccess('');
+    setEmailLoading(true);
+    try {
+      const { data } = await api.post('/auth/request-email-change', {
+        currentPassword: emailForm.currentPassword,
+        newEmail: emailForm.newEmail,
+      });
+      setEmailSuccess(data.message);
+      setEmailStep(2);
+    } catch (err) {
+      setEmailError(err.response?.data?.message || 'Yêu cầu đổi email thất bại');
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const handleVerifyEmailChange = async (e) => {
+    e.preventDefault();
+    setEmailError('');
+    setEmailSuccess('');
+    setEmailLoading(true);
+    try {
+      const { data } = await api.post('/auth/verify-email-change', {
+        newEmail: emailForm.newEmail,
+        otp: emailForm.otp,
+      });
+      setUser(data.user);
+      setForm(prev => ({ ...prev, email: data.user.email }));
+      setInfoSuccess('Đổi email thành công!');
+      setShowEmailModal(false);
+      setEmailStep(1);
+      setEmailForm({ currentPassword: '', newEmail: '', otp: '' });
+    } catch (err) {
+      setEmailError(err.response?.data?.message || 'Xác nhận mã OTP thất bại');
+    } finally {
+      setEmailLoading(false);
     }
   };
 
@@ -314,13 +364,33 @@ export default function ProfileModal({ onClose }) {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Email</label>
-                <input
-                  type="email"
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
-                  value={form.email}
-                  onChange={e => setForm({ ...form, email: e.target.value })}
-                />
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Email</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmailError('');
+                      setEmailSuccess('');
+                      setEmailStep(1);
+                      setEmailForm({ currentPassword: '', newEmail: '', otp: '' });
+                      setShowEmailModal(true);
+                    }}
+                    className="text-xs text-[#0084ff] hover:underline font-bold cursor-pointer"
+                  >
+                    Đổi Email
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="email"
+                    disabled
+                    className="bg-gray-50 text-gray-500 border border-gray-100 rounded-lg py-2 px-3 text-sm cursor-not-allowed w-full select-none"
+                    value={user.email || ''}
+                  />
+                  <span className="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-1.5 rounded-lg shrink-0 flex items-center gap-1">
+                    ✓ Đã xác minh
+                  </span>
+                </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -499,6 +569,123 @@ export default function ProfileModal({ onClose }) {
               >
                 {avatarLoading ? 'Đang lưu...' : 'Lưu Avatar'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Đổi Email Bảo Mật (OTP) */}
+        {showEmailModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" onClick={() => setShowEmailModal(false)}>
+            <div className="card w-full max-w-sm bg-white text-black border border-gray-200 relative overflow-hidden shadow-2xl rounded-2xl p-6 flex flex-col gap-4 font-sans animate-fade-in" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <h3 className="text-base font-bold text-gray-900">
+                  {emailStep === 1 ? 'Thay đổi địa chỉ Email' : 'Nhập mã xác minh OTP'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowEmailModal(false)}
+                  className="hover:bg-gray-100 text-gray-500 hover:text-black text-xs cursor-pointer bg-gray-50 px-2.5 py-1 rounded-full font-semibold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {emailStep === 1 ? (
+                <form onSubmit={handleRequestEmailChange} className="flex flex-col gap-4">
+                  <p className="text-xs text-gray-500">
+                    Để đảm bảo an toàn tài khoản, vui lòng nhập <strong>mật khẩu hiện tại</strong> và <strong>email mới</strong>. Mã OTP xác thực sẽ được gửi tới <strong>email mới</strong> và một thông báo cảnh báo bảo mật sẽ được gửi về <strong>email hiện tại</strong> của bạn.
+                  </p>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mật khẩu hiện tại</label>
+                    <input
+                      type="password"
+                      required
+                      className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                      value={emailForm.currentPassword}
+                      onChange={e => setEmailForm({ ...emailForm, currentPassword: e.target.value })}
+                      placeholder="••••••••"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Email mới</label>
+                    <input
+                      type="email"
+                      required
+                      className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                      value={emailForm.newEmail}
+                      onChange={e => setEmailForm({ ...emailForm, newEmail: e.target.value })}
+                      placeholder="example@gmail.com"
+                    />
+                  </div>
+
+                  {emailError && (
+                    <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
+                      {emailError}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailModal(false)}
+                      className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-black bg-gray-100 hover:bg-gray-200 rounded-full cursor-pointer"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={emailLoading}
+                      className="px-4 py-2 text-xs font-bold text-white bg-[#0084ff] hover:bg-[#0073de] rounded-full cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {emailLoading ? 'Đang gửi mã...' : 'Gửi mã OTP'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={handleVerifyEmailChange} className="flex flex-col gap-4">
+                  <div className="bg-blue-50 text-blue-800 border border-blue-100 py-2.5 px-3 text-xs rounded-lg">
+                    {emailSuccess || `Mã OTP 6 số đã được gửi tới địa chỉ email mới (${emailForm.newEmail}).`}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mã OTP (6 chữ số)</label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      className="bg-white border border-gray-200 text-black text-center tracking-[8px] font-mono font-bold text-lg focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 outline-none w-full"
+                      value={emailForm.otp}
+                      onChange={e => setEmailForm({ ...emailForm, otp: e.target.value })}
+                      placeholder="123456"
+                    />
+                  </div>
+
+                  {emailError && (
+                    <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
+                      {emailError}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEmailStep(1)}
+                      className="text-xs text-[#0084ff] hover:underline font-bold cursor-pointer"
+                    >
+                      ← Nhập lại email
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={emailLoading}
+                      className="px-4 py-2 text-xs font-bold text-white bg-[#0084ff] hover:bg-[#0073de] rounded-full cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {emailLoading ? 'Đang xác thực...' : 'Xác nhận Đổi Email'}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         )}

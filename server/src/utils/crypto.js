@@ -166,7 +166,81 @@ const decrypt = (content, iv, tag, encryptedKey) => {
   }
 };
 
+/**
+ * Mã hóa dữ liệu PII (Số điện thoại, Ngày sinh...) bằng AES-256-GCM
+ * @param {string} text - Dữ liệu văn bản cần mã hóa
+ * @returns {string} Chuỗi mã hóa dạng iv:tag:ciphertext (Hex)
+ */
+const encryptPII = (text) => {
+  if (!text) return '';
+  const strVal = String(text).trim();
+  if (!strVal) return '';
+  // Kiểm tra nếu đã được mã hóa dạng iv:tag:ciphertext (12 bytes iv = 24 hex, 16 bytes tag = 32 hex)
+  if (strVal.includes(':')) {
+    const parts = strVal.split(':');
+    if (parts.length === 3 && parts[0].length === 24 && parts[1].length === 32) {
+      return strVal;
+    }
+  }
+  try {
+    const iv = crypto.randomBytes(IV_LENGTH);
+    const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+    let encrypted = cipher.update(strVal, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const tag = cipher.getAuthTag().toString('hex');
+    return `${iv.toString('hex')}:${tag}:${encrypted}`;
+  } catch (err) {
+    console.error('[Crypto] Encrypt PII error:', err);
+    return strVal;
+  }
+};
+
+/**
+ * Giải mã dữ liệu PII dạng iv:tag:ciphertext
+ * @param {string} encryptedText - Chuỗi mã hóa dạng iv:tag:ciphertext
+ * @returns {string} Văn bản giải mã
+ */
+const decryptPII = (encryptedText) => {
+  if (!encryptedText || typeof encryptedText !== 'string') return encryptedText || '';
+  if (!encryptedText.includes(':')) return encryptedText;
+
+  const parts = encryptedText.split(':');
+  if (parts.length !== 3) return encryptedText;
+
+  const [ivHex, tagHex, ciphertextHex] = parts;
+  if (ivHex.length !== 24 || tagHex.length !== 32) {
+    return encryptedText;
+  }
+
+  try {
+    const iv = Buffer.from(ivHex, 'hex');
+    const tag = Buffer.from(tagHex, 'hex');
+    const decipher = crypto.createDecipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+    decipher.setAuthTag(tag);
+    let decrypted = decipher.update(ciphertextHex, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[Crypto] Decrypt PII error:', err.message);
+    return encryptedText;
+  }
+};
+
+/**
+ * Tạo Blind Index (HMAC-SHA256) cho các dữ liệu PII cần hỗ trợ tìm kiếm (ví dụ SĐT)
+ * @param {string} text - Dữ liệu đầu vào
+ * @returns {string} Chuỗi hash HMAC-SHA256 (Hex)
+ */
+const hashBlindIndex = (text) => {
+  if (!text) return '';
+  const normalized = String(text).trim().toLowerCase();
+  return crypto.createHmac('sha256', ENCRYPTION_KEY).update(normalized).digest('hex');
+};
+
 module.exports = {
   encrypt,
-  decrypt
+  decrypt,
+  encryptPII,
+  decryptPII,
+  hashBlindIndex,
 };
