@@ -7,6 +7,13 @@ const multer = require('multer');
 const { cloudinary } = require('../config/cloudinary');
 const { Readable } = require('stream');
 
+const hasEncryptedKeys = (encryptedKeys) => {
+  if (!encryptedKeys) return false;
+  if (typeof encryptedKeys.size === 'number') return encryptedKeys.size > 0;
+  if (typeof encryptedKeys === 'object') return Object.keys(encryptedKeys).length > 0;
+  return false;
+};
+
 const uploadAudio = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
@@ -49,7 +56,7 @@ router.get('/', protect, async (req, res) => {
 
     const decryptedRooms = rooms.map(roomDoc => {
       const room = roomDoc.toObject();
-      if (room.lastMessage && room.lastMessage.content && !room.lastMessage.isDeleted) {
+      if (room.lastMessage && room.lastMessage.content && !room.lastMessage.isDeleted && room.lastMessage.encryptedKey && !hasEncryptedKeys(room.lastMessage.encryptedKeys)) {
         room.lastMessage.content = decrypt(
           room.lastMessage.content,
           room.lastMessage.iv,
@@ -112,7 +119,7 @@ router.get('/all', protect, async (req, res) => {
 
     const decryptedRooms = rooms.map(roomDoc => {
       const room = roomDoc.toObject();
-      if (room.lastMessage && room.lastMessage.content && !room.lastMessage.isDeleted) {
+      if (room.lastMessage && room.lastMessage.content && !room.lastMessage.isDeleted && room.lastMessage.encryptedKey && !hasEncryptedKeys(room.lastMessage.encryptedKeys)) {
         room.lastMessage.content = decrypt(
           room.lastMessage.content,
           room.lastMessage.iv,
@@ -157,17 +164,17 @@ router.get('/:id/messages', protect, async (req, res) => {
     const decryptedMessages = messages.map(msgDoc => {
       const msg = msgDoc.toObject();
       
-      if (!msg.isDeleted && msg.content) {
+      if (!msg.isDeleted && msg.content && msg.encryptedKey && !msg.encryptedKeys?.size) {
         msg.content = decrypt(msg.content, msg.iv, msg.tag, msg.encryptedKey);
         msg.isEncryptedAtRest = true;
       }
       
-      if (msg.replyTo && msg.replyTo.content && !msg.replyTo.isDeleted) {
+      if (msg.replyTo && msg.replyTo.content && !msg.replyTo.isDeleted && msg.replyTo.encryptedKey && !msg.replyTo.encryptedKeys?.size) {
         msg.replyTo.content = decrypt(msg.replyTo.content, msg.replyTo.iv, msg.replyTo.tag, msg.replyTo.encryptedKey);
         msg.replyTo.isEncryptedAtRest = true;
       }
 
-      if (msg.forwardedFrom && msg.forwardedFrom.content && !msg.forwardedFrom.isDeleted) {
+      if (msg.forwardedFrom && msg.forwardedFrom.content && !msg.forwardedFrom.isDeleted && msg.forwardedFrom.encryptedKey && !msg.forwardedFrom.encryptedKeys?.size) {
         msg.forwardedFrom.content = decrypt(msg.forwardedFrom.content, msg.forwardedFrom.iv, msg.forwardedFrom.tag, msg.forwardedFrom.encryptedKey);
         msg.forwardedFrom.isEncryptedAtRest = true;
       }

@@ -95,6 +95,38 @@ const encryptReportContent = (text) => {
   }
 };
 
+const encrypt = (text) => {
+  if (!text) return { content: '', iv: null, tag: null, encryptedKey: null };
+  const strVal = String(text);
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, MASTER_KEY, iv);
+  let encrypted = cipher.update(strVal, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return {
+    content: encrypted,
+    iv: iv.toString('hex'),
+    tag,
+    encryptedKey: null,
+  };
+};
+
+const decrypt = (content, ivHex, tagHex, encryptedKey) => {
+  if (!content || !ivHex || !tagHex) return content || '';
+  try {
+    const iv = Buffer.from(ivHex, 'hex');
+    const tag = Buffer.from(tagHex, 'hex');
+    const decipher = crypto.createDecipheriv(ALGORITHM, MASTER_KEY, iv);
+    decipher.setAuthTag(tag);
+    let decrypted = decipher.update(content, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[Crypto] Decrypt error:', err.message);
+    return content;
+  }
+};
+
 /**
  * Giải mã nội dung Report
  */
@@ -132,6 +164,8 @@ const hashBlindIndex = (text) => {
 };
 
 module.exports = {
+  encrypt,
+  decrypt,
   encryptPII,
   decryptPII,
   encryptReportContent,

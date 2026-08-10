@@ -10,6 +10,14 @@ const protect = async (req, res, next) => {
     req.user = await User.findById(decoded.id).select('-password');
     if (!req.user) return res.status(401).json({ message: 'User không tồn tại' });
 
+    // 0. Invalidate old tokens after password change
+    if (decoded.iat && req.user.passwordChangedAt) {
+      const tokenIssuedAt = new Date(decoded.iat * 1000);
+      if (tokenIssuedAt < new Date(req.user.passwordChangedAt).getTime()) {
+        return res.status(401).json({ message: 'Token đã hết hạn do thay đổi mật khẩu' });
+      }
+    }
+
     // 1. Phân biệt Bootstrap Token vs Device Token
     if (!decoded.deviceId) {
       // Bootstrap Token (Hạn 15m, chưa đăng ký device) ➔ Chỉ cho phép các API whitelist cơ bản

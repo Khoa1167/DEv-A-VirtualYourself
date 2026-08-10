@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
 import api from '../../services/api';
+import { decryptMessage, getDeviceId } from '../../utils/e2ee';
 import ProfileModal from '../Profile/ProfileModal';
 import KeyBackupModal from '../Settings/KeyBackupModal';
 
@@ -90,10 +91,12 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
       );
     });
 
-    const offEdited = on('message:edited', ({ messageId, newContent, isEdited }) => {
+    const offEdited = on('message:edited', async ({ messageId, content, iv, tag, encryptedKeys, isEdited }) => {
+      const devId = getDeviceId();
+      const decryptedText = await decryptMessage({ content, iv, tag, encryptedKeys }, devId);
       setRooms(prev =>
         prev.map(r => r.lastMessage?._id === messageId
-          ? { ...r, lastMessage: { ...r.lastMessage, content: newContent, isEdited } }
+          ? { ...r, lastMessage: { ...r.lastMessage, content: decryptedText, isEdited, iv, tag, encryptedKeys } }
           : r
         )
       );

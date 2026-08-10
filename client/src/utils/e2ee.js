@@ -44,6 +44,28 @@ export const getPrivateKey = async (deviceId) => {
   });
 };
 
+export const storePublicKey = async (deviceId, publicKey) => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.put(publicKey, `public_${deviceId}`);
+    req.onsuccess = () => resolve(true);
+    req.onerror = (e) => reject(e.target.error);
+  });
+};
+
+export const getPublicKey = async (deviceId) => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(`public_${deviceId}`);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = (e) => reject(e.target.error);
+  });
+};
+
 // ─── 2. Quản lý Device ID ──────────────────────────────────────────────────
 export const getDeviceId = () => {
   let deviceId = localStorage.getItem('chat_device_id');
@@ -64,7 +86,7 @@ export const generateKeyPair = async () => {
       publicExponent: new Uint8Array([1, 0, 1]),
       hash: 'SHA-256',
     },
-    false, // privateKey non-extractable cho bảo mật
+    true, // privateKey extractable để backup/recovery
     ['encrypt', 'decrypt']
   );
 };
@@ -83,6 +105,17 @@ export const importPublicKey = async (jwkString) => {
     true,
     ['encrypt']
   );
+};
+
+export const exportPublicKeyFromPrivateKey = async (privateKey) => {
+  const privateJwk = await window.crypto.subtle.exportKey('jwk', privateKey);
+  const publicJwk = {
+    kty: privateJwk.kty,
+    n: privateJwk.n,
+    e: privateJwk.e,
+    ext: true
+  };
+  return JSON.stringify(publicJwk);
 };
 
 // ─── 4. Mã hóa & Giải mã Tin nhắn Client-side ──────────────────────────────
@@ -223,7 +256,7 @@ export const computeFingerprint = async (publicKeyJWK) => {
 };
 
 // ─── 6. Passphrase Backup & Recovery (PBKDF2 600k iterations) ───────────────
-export const exportPrivateKeyEncrypted = async (privateKey, passphrase) => {
+export const exportPrivateKeyEncrypted = async (privateKey, publicKeyJWK, passphrase) => {
   if (!passphrase || passphrase.length < 12) {
     throw new Error('Passphrase phải có độ dài tối thiểu 12 ký tự.');
   }
@@ -261,7 +294,8 @@ export const exportPrivateKeyEncrypted = async (privateKey, passphrase) => {
   const backupData = {
     salt: arrayBufferToBase64(salt),
     iv: arrayBufferToBase64(iv),
-    data: arrayBufferToBase64(encryptedPrivateKey)
+    data: arrayBufferToBase64(encryptedPrivateKey),
+    publicKey: publicKeyJWK || null,
   };
 
   return btoa(JSON.stringify(backupData));
@@ -298,13 +332,18 @@ export const importPrivateKeyFromBackup = async (backupString, passphrase) => {
       encryptedData
     );
 
-    return await window.crypto.subtle.importKey(
+    const privateKey = await window.crypto.subtle.importKey(
       'pkcs8',
       decryptedPKCS8,
       { name: 'RSA-OAEP', hash: 'SHA-256' },
-      false,
+      true,
       ['decrypt']
     );
+
+    return {
+      privateKey,
+      publicKey: backupData.publicKey || null,
+    };
   } catch {
     throw new Error('Mật khẩu giải mã hoặc tệp sao lưu không chính xác.');
   }

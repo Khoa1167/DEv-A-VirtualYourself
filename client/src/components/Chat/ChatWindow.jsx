@@ -102,9 +102,13 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
     });
 
     // Tin nhắn được chỉnh sửa
-    const offEdited = on('message:edited', ({ messageId, newContent, isEdited }) => {
+    const offEdited = on('message:edited', async ({ messageId, content, iv, tag, encryptedKeys, isEdited }) => {
+      const devId = getDeviceId();
+      const decryptedText = await decryptMessage({ content, iv, tag, encryptedKeys }, devId);
       setMessages(prev =>
-        prev.map(m => m._id === messageId ? { ...m, content: newContent, isEdited } : m)
+        prev.map(m => m._id === messageId
+          ? { ...m, content: decryptedText, decryptedText, iv, tag, encryptedKeys, isEdited }
+          : m)
       );
     });
 
@@ -140,27 +144,29 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
 
   const roomId = room?._id;
 
+  const fetchRoomDevicePublicKeys = async (roomToUse) => {
+    const allDevicePublicKeys = [];
+    if (!roomToUse?.members) return allDevicePublicKeys;
+
+    for (const member of roomToUse.members) {
+      try {
+        const { data: devices } = await api.get(`/users/${member._id}/devices`);
+        if (Array.isArray(devices)) {
+          allDevicePublicKeys.push(...devices);
+        }
+      } catch (err) {
+        console.warn(`Lỗi khi lấy public key của member ${member._id}:`, err);
+      }
+    }
+
+    return allDevicePublicKeys;
+  };
+
   const handleSend = useCallback(async (content, replyToId, type = 'text', fileName = null) => {
     try {
-      // 1. Thu thập public keys của tất cả thành viên trong phòng
-      const allDevicePublicKeys = [];
-      if (room && room.members) {
-        for (const member of room.members) {
-          try {
-            const { data: devices } = await api.get(`/users/${member._id}/devices`);
-            if (Array.isArray(devices)) {
-              allDevicePublicKeys.push(...devices);
-            }
-          } catch (err) {
-            console.warn(`Lỗi khi lấy public key của member ${member._id}:`, err);
-          }
-        }
-      }
-
-      // 2. Mã hóa tin nhắn E2EE phía Client
+      const allDevicePublicKeys = await fetchRoomDevicePublicKeys(room);
       const encryptedPayload = await encryptMessageForRoom(content, allDevicePublicKeys);
 
-      // 3. Gửi payload bản mã lên Server qua Socket
       emit('message:send', {
         roomId,
         content: encryptedPayload.content,
@@ -192,19 +198,55 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
     setShowForward(true);
   }, []);
 
-  const handleForwardSend = useCallback((targetRoomId, originalMsg) => {
+  const handleForwardSend = useCallback(async (targetRoomId, originalMsg) => {
     if (!originalMsg || originalMsg.isDeleted) {
       alert('Không thể chuyển tiếp tin nhắn đã bị thu hồi.');
       return;
     }
-    emit('message:send', {
-      roomId: targetRoomId,
-      content: originalMsg.content,
-      type: originalMsg.type,
-      fileName: originalMsg.fileName,
-      forwardedFrom: originalMsg._id
-    });
+
+    try {
+      const { data: rooms } = await api.get('/rooms');
+      const targetRoom = rooms.find(r => r._id === targetRoomId);
+      if (!targetRoom) {
+        throw new Error('Không tìm thấy phòng để chuyển tiếp.');
+      }
+
+      const allDevicePublicKeys = await fetchRoomDevicePublicKeys(targetRoom);
+      const encryptedPayload = await encryptMessageForRoom(originalMsg.content, allDevicePublicKeys);
+
+      emit('message:send', {
+        roomId: targetRoomId,
+        content: encryptedPayload.content,
+        iv: encryptedPayload.iv,
+        tag: encryptedPayload.tag,
+        encryptedKeys: encryptedPayload.encryptedKeys,
+        type: originalMsg.type,
+        fileName: originalMsg.fileName,
+        forwardedFrom: originalMsg._id
+      });
+    } catch (err) {
+      console.error('[E2EE] Forward error:', err);
+      alert('Không thể mã hóa tin nhắn chuyển tiếp.');
+    }
   }, [emit]);
+
+  const handleEdit = useCallback(async (messageId, newContent) => {
+    try {
+      const allDevicePublicKeys = await fetchRoomDevicePublicKeys(room);
+      const encryptedPayload = await encryptMessageForRoom(newContent, allDevicePublicKeys);
+
+      emit('message:edit', {
+        messageId,
+        content: encryptedPayload.content,
+        iv: encryptedPayload.iv,
+        tag: encryptedPayload.tag,
+        encryptedKeys: encryptedPayload.encryptedKeys,
+      });
+    } catch (err) {
+      console.error('[E2EE] Edit error:', err);
+      alert('Không thể mã hóa nội dung chỉnh sửa tin nhắn.');
+    }
+  }, [emit, room]);
 
   const loadMore = async () => {
     const nextPage = page + 1;
@@ -360,6 +402,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
                   isGrouped={false}
                   isDM={room.isDM}
                   onForwardClick={handleForwardClick}
+                  onEdit={handleEdit}
                   onViewProfile={onViewProfile}
                 />
               );

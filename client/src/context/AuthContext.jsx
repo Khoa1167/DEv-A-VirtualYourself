@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
-import { getDeviceId, getPrivateKey, generateKeyPair, storePrivateKey, exportPublicKey } from '../utils/e2ee';
+import { getDeviceId, getPrivateKey, getPublicKey, generateKeyPair, storePrivateKey, storePublicKey, exportPublicKey, exportPublicKeyFromPrivateKey } from '../utils/e2ee';
 
 const AuthContext = createContext(null);
 
@@ -21,10 +21,20 @@ export const AuthProvider = ({ children }) => {
       privateKey = keyPair.privateKey;
       await storePrivateKey(deviceId, privateKey);
       publicKeyJWK = await exportPublicKey(keyPair.publicKey);
+      await storePublicKey(deviceId, publicKeyJWK);
     } else {
-      // Nếu đã có privateKey, xuất publicKey tương ứng từ CryptoKey
-      const keyPair = await generateKeyPair(); // Fallback key rotation nếu cần
-      publicKeyJWK = await exportPublicKey(keyPair.publicKey);
+      const storedPublicKey = await getPublicKey(deviceId);
+      if (storedPublicKey) {
+        publicKeyJWK = storedPublicKey;
+      } else {
+        try {
+          publicKeyJWK = await exportPublicKeyFromPrivateKey(privateKey);
+          await storePublicKey(deviceId, publicKeyJWK);
+        } catch (err) {
+          console.warn('[E2EE] Cannot recover public key from private key:', err);
+          throw new Error('Public key thiết bị bị thiếu. Vui lòng khôi phục backup hoặc đăng ký lại thiết bị.');
+        }
+      }
     }
 
     const deviceName = `${navigator.platform} (${navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Browser'})`;

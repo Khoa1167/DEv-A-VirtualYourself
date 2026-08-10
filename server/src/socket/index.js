@@ -158,25 +158,33 @@ const setupSocket = (io) => {
       }
     });
 
-    socket.on('message:edit', async ({ messageId, newContent }) => {
+    socket.on('message:edit', async ({ messageId, content, iv, tag, encryptedKeys }) => {
       try {
         const msg = await Message.findOne({ _id: messageId, sender: userId });
         if (!msg) return socket.emit('error', { message: 'Không có quyền chỉnh sửa tin nhắn này' });
         if (msg.isDeleted) return socket.emit('error', { message: 'Không thể chỉnh sửa tin nhắn đã bị thu hồi' });
         if (msg.type !== 'text') return socket.emit('error', { message: 'Chỉ có thể chỉnh sửa tin nhắn văn bản' });
 
+        if (!content || !iv || !tag || !encryptedKeys || Object.keys(encryptedKeys).length === 0) {
+          return socket.emit('error', { message: 'Payload chỉnh sửa tin nhắn phải có nội dung được mã hóa E2EE.' });
+        }
 
-
-        // Mã hóa lại nội dung mới trước khi lưu
-        const encrypted = encrypt(newContent);
-        msg.content = encrypted.content;
-        msg.iv = encrypted.iv;
-        msg.tag = encrypted.tag;
-        msg.encryptedKey = encrypted.encryptedKey;
+        msg.content = content;
+        msg.iv = iv;
+        msg.tag = tag;
+        msg.encryptedKeys = encryptedKeys;
+        msg.encryptedKey = null;
         msg.isEdited = true;
         await msg.save();
 
-        io.to(msg.room.toString()).emit('message:edited', { messageId, newContent, isEdited: true });
+        io.to(msg.room.toString()).emit('message:edited', {
+          messageId,
+          content,
+          iv,
+          tag,
+          encryptedKeys,
+          isEdited: true
+        });
       } catch (err) {
         socket.emit('error', { message: err.message });
       }

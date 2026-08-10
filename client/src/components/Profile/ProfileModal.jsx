@@ -22,6 +22,7 @@ export default function ProfileModal({ onClose }) {
   const [infoError, setInfoError] = useState('');
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoSuccess, setInfoSuccess] = useState('');
+  const nicknameTimerRef = useRef(null);
 
   // ── Form đổi Email có xác thực OTP ──
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -44,19 +45,27 @@ export default function ProfileModal({ onClose }) {
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
 
-  // Kiểm tra nickname realtime
-  const checkNickname = async (value) => {
+  // Kiểm tra nickname realtime với debounce
+  const checkNickname = (value) => {
     setForm(prev => ({ ...prev, nickname: value }));
+    if (nicknameTimerRef.current) {
+      clearTimeout(nicknameTimerRef.current);
+    }
+
     if (value === user.nickname || value.trim().length < 2) {
-      setNicknameStatus(''); return;
-    }
-    setNicknameStatus('checking');
-    try {
-      const { data } = await api.post('/auth/check-nickname', { nickname: value });
-      setNicknameStatus(data.available ? 'available' : 'taken');
-    } catch {
       setNicknameStatus('');
+      return;
     }
+
+    setNicknameStatus('checking');
+    nicknameTimerRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.post('/auth/check-nickname', { nickname: value });
+        setNicknameStatus(data.available ? 'available' : 'taken');
+      } catch {
+        setNicknameStatus('');
+      }
+    }, 200);
   };
 
   const handleSelectAvatar = (e) => {

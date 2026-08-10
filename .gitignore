@@ -9,7 +9,7 @@ client/dist/
 .DS_Store
 Thumbs.db
 chat_server.zip
-
+.agents
 # Cryptography Keys
 server/keys/
 *.pem

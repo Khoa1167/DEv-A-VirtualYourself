@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getDeviceId, getPrivateKey, exportPrivateKeyEncrypted, importPrivateKeyFromBackup, storePrivateKey } from '../../utils/e2ee';
+import { getDeviceId, getPrivateKey, getPublicKey, exportPrivateKeyEncrypted, importPrivateKeyFromBackup, exportPublicKeyFromPrivateKey, storePrivateKey, storePublicKey } from '../../utils/e2ee';
 
 export default function KeyBackupModal({ onClose }) {
   const [activeTab, setActiveTab] = useState('backup'); // 'backup' hoặc 'restore'
@@ -41,7 +41,8 @@ export default function KeyBackupModal({ onClose }) {
         throw new Error('Không tìm thấy Private Key trên thiết bị này.');
       }
 
-      const encryptedBackup = await exportPrivateKeyEncrypted(privateKey, passphrase);
+      const publicKeyJWK = await getPublicKey(deviceId);
+      const encryptedBackup = await exportPrivateKeyEncrypted(privateKey, publicKeyJWK, passphrase);
       setBackupString(encryptedBackup);
       setMessage({ type: 'success', text: 'Tạo bản sao lưu mã hóa thành công!' });
     } catch (err) {
@@ -63,8 +64,19 @@ export default function KeyBackupModal({ onClose }) {
     setLoading(true);
     try {
       const deviceId = getDeviceId();
-      const restoredPrivateKey = await importPrivateKeyFromBackup(importedBackup.trim(), passphrase);
-      await storePrivateKey(deviceId, restoredPrivateKey);
+      const { privateKey, publicKey } = await importPrivateKeyFromBackup(importedBackup.trim(), passphrase);
+      await storePrivateKey(deviceId, privateKey);
+      let publicKeyToStore = publicKey;
+      if (!publicKeyToStore) {
+        try {
+          publicKeyToStore = await exportPublicKeyFromPrivateKey(privateKey);
+        } catch (warnErr) {
+          console.warn('[E2EE] Không thể lấy public key từ private key sau khi khôi phục backup:', warnErr);
+        }
+      }
+      if (publicKeyToStore) {
+        await storePublicKey(deviceId, publicKeyToStore);
+      }
       setMessage({ type: 'success', text: 'Khôi phục khóa Private Key thành công!' });
     } catch (err) {
       setMessage({ type: 'error', text: err.message || 'Giải mã tệp sao lưu thất bại.' });

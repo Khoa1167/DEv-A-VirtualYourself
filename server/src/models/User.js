@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   gender:            { type: String, enum: ['male', 'female', 'other', ''], default: '' },
   bio:               { type: String, default: '', maxlength: 150 },
   password:          { type: String, required: true, minlength: 6 },
+  passwordChangedAt: { type: Date, default: Date.now },
   avatar:            { type: String, default: '' },
   cover:             { type: String, default: '' },
   isOnline:          { type: Boolean, default: false },
@@ -33,8 +34,9 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 userSchema.pre('save', async function() {
-  // 1. Mã hóa mật khẩu nếu thay đổi
+  // 1. Cập nhật passwordChangedAt nếu mật khẩu thay đổi
   if (this.isModified('password')) {
+    this.passwordChangedAt = new Date();
     if (!this.password.startsWith('$2a$') && !this.password.startsWith('$2b$')) {
       this.password = await bcrypt.hash(this.password, 12);
     }

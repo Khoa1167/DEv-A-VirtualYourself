@@ -16,6 +16,14 @@ const { uploadAvatar, uploadCover, deleteCloudinaryImage } = require('../config/
 
 const crypto = require('crypto');
 
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const phoneRegex = /^\+?[0-9]{7,15}$/;
+
+const normalizeEmail = (value) => typeof value === 'string' ? value.toLowerCase().trim() : '';
+const normalizePhone = (value) => typeof value === 'string' ? value.trim().replace(/[()\s\-]/g, '') : '';
+const isValidEmail = (value) => emailRegex.test(value);
+const isValidPhone = (value) => phoneRegex.test(value);
+
 // Bootstrap token (hạn 15m, chưa đăng ký device)
 const genBootstrapToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15m' });
@@ -38,21 +46,27 @@ const hashOTP = (otp) =>
 router.post('/send-otp', async (req, res) => {
   try {
     const { username, password, email, phone } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedPhone = normalizePhone(phone || '');
 
     // Validate cơ bản
-    if (!username || !password || !email)
+    if (!username || !password || !normalizedEmail)
       return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin' });
     if (username.length < 3)
       return res.status(400).json({ message: 'Tên tài khoản phải có ít nhất 3 ký tự' });
     if (password.length < 6)
       return res.status(400).json({ message: 'Mật khẩu phải có ít nhất 6 ký tự' });
+    if (!isValidEmail(normalizedEmail))
+      return res.status(400).json({ message: 'Email không hợp lệ' });
+    if (phone && !isValidPhone(normalizedPhone))
+      return res.status(400).json({ message: 'Số điện thoại không hợp lệ' });
 
     // Kiểm tra username/email đã tồn tại chưa
     const usernameExists = await User.findOne({ username });
     if (usernameExists)
       return res.status(400).json({ message: 'Tên tài khoản đã tồn tại' });
 
-    const emailExists = await User.findOne({ email });
+    const emailExists = await User.findOne({ email: normalizedEmail });
     if (emailExists)
       return res.status(400).json({ message: 'Email đã được sử dụng' });
 
@@ -63,15 +77,15 @@ router.post('/send-otp', async (req, res) => {
     const expiresAt      = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
 
     // Xóa pending user cũ nếu có, tạo mới hoàn toàn
-    await PendingUser.deleteOne({ email });
+    await PendingUser.deleteOne({ email: normalizedEmail });
     await PendingUser.create({
-      username, hashedPassword, email,
-      phone: phone || '', otp: hashedOtp, expiresAt, attempts: 0,
+      username, hashedPassword, email: normalizedEmail,
+      phone: normalizedPhone, otp: hashedOtp, expiresAt, attempts: 0,
     });
 
     // Gửi email OTP
-    await sendOTPEmail(email, otp);
-    console.log(`[DEBUG] OTP for ${email}: ${otp}`);
+    await sendOTPEmail(normalizedEmail, otp);
+    console.log(`[DEBUG] OTP for ${normalizedEmail}: ${otp}`);
 
     res.json({ message: 'OTP đã được gửi tới email của bạn' });
   } catch (err) {
@@ -84,11 +98,14 @@ router.post('/send-otp', async (req, res) => {
 router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!email || !otp)
+    if (!normalizedEmail || !otp)
       return res.status(400).json({ message: 'Thiếu email hoặc OTP' });
+    if (!isValidEmail(normalizedEmail))
+      return res.status(400).json({ message: 'Email không hợp lệ' });
 
-    const pending = await PendingUser.findOne({ email });
+    const pending = await PendingUser.findOne({ email: normalizedEmail });
     if (!pending)
       return res.status(400).json({ message: 'Không tìm thấy yêu cầu đăng ký' });
 
@@ -167,7 +184,8 @@ router.post('/check-nickname', async (req, res) => {
 router.post('/set-nickname', protect, async (req, res) => {
   try {
     const { nickname } = req.body;
-    if (!nickname || nickname.trim().length < 2)
+    const normalizedNickname = typeof nickname === 'string' ? nickname.trim() : '';
+    if (!normalizedNickname || normalizedNickname.length < 2)
       return res.status(400).json({ message: 'Nickname phải có ít nhất 2 ký tự' });
 
     // Chỉ cho phép thiết lập nickname lần đầu khi mới đăng ký tài khoản
@@ -178,13 +196,13 @@ router.post('/set-nickname', protect, async (req, res) => {
     }
 
     const exists = await User.findOne({
-      nickname, _id: { $ne: req.user._id }
+      nickname: normalizedNickname, _id: { $ne: req.user._id }
     });
     if (exists)
       return res.status(400).json({ message: 'Tên hiển thị đã tồn tại' });
 
     const user = await User.findByIdAndUpdate(
-      req.user._id, { nickname, nicknameChangedAt: new Date() }, { new: true }
+      req.user._id, { nickname: normalizedNickname, nicknameChangedAt: new Date() }, { new: true, runValidators: true }
     );
     res.json(user);
   } catch (err) {
@@ -216,7 +234,8 @@ router.put('/profile', protect, async (req, res) => {
     const updates = {};
 
     if (nickname && nickname !== req.user.nickname) {
-      if (nickname.trim().length < 2)
+      const normalizedNickname = typeof nickname === 'string' ? nickname.trim() : '';
+      if (!normalizedNickname || normalizedNickname.length < 2)
         return res.status(400).json({ message: 'Nickname phải có ít nhất 2 ký tự' });
 
       // Kiểm tra 7 ngày
@@ -230,11 +249,11 @@ router.put('/profile', protect, async (req, res) => {
         }
       }
 
-      const exists = await User.findOne({ nickname, _id: { $ne: req.user._id } });
+      const exists = await User.findOne({ nickname: normalizedNickname, _id: { $ne: req.user._id } });
       if (exists)
         return res.status(400).json({ message: 'Tên hiển thị đã tồn tại' });
 
-      updates.nickname = nickname;
+      updates.nickname = normalizedNickname;
       updates.nicknameChangedAt = new Date();
     }
 
@@ -255,7 +274,10 @@ router.put('/profile', protect, async (req, res) => {
     }
 
     if (phone !== undefined) {
-      user.phone = phone;
+      const normalizedPhone = normalizePhone(phone);
+      if (normalizedPhone && !isValidPhone(normalizedPhone))
+        return res.status(400).json({ message: 'Số điện thoại không hợp lệ' });
+      user.phone = normalizedPhone;
     }
 
     if (dateOfBirth !== undefined) {
@@ -285,7 +307,9 @@ router.post('/request-email-change', protect, async (req, res) => {
     if (!currentPassword || !newEmail)
       return res.status(400).json({ message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và email mới' });
 
-    const lowerNewEmail = newEmail.toLowerCase().trim();
+    const lowerNewEmail = normalizeEmail(newEmail);
+    if (!isValidEmail(lowerNewEmail))
+      return res.status(400).json({ message: 'Email mới không hợp lệ' });
     if (lowerNewEmail === req.user.email.toLowerCase()) {
       return res.status(400).json({ message: 'Email mới trùng với email hiện tại' });
     }
@@ -356,7 +380,10 @@ router.post('/verify-email-change', protect, async (req, res) => {
     if (!newEmail || !otp)
       return res.status(400).json({ message: 'Thiếu email mới hoặc mã OTP' });
 
-    const lowerNewEmail = newEmail.toLowerCase().trim();
+    const lowerNewEmail = normalizeEmail(newEmail);
+    if (!isValidEmail(lowerNewEmail))
+      return res.status(400).json({ message: 'Email mới không hợp lệ' });
+
     const record = await EmailChange.findOne({ userId: req.user._id, newEmail: lowerNewEmail });
     if (!record)
       return res.status(400).json({ message: 'Không tìm thấy yêu cầu thay đổi email' });
@@ -508,7 +535,9 @@ router.post('/forgot-password', async (req, res) => {
     if (!email)
       return res.status(400).json({ message: 'Vui lòng nhập email' });
 
-    const lowerEmail = email.toLowerCase().trim();
+    const lowerEmail = normalizeEmail(email);
+    if (!isValidEmail(lowerEmail))
+      return res.status(400).json({ message: 'Email không hợp lệ' });
     const user = await User.findOne({ email: lowerEmail });
 
     // Trả về thông báo chung để chống lộ thông tin người dùng (User Enumeration Protection)
@@ -567,10 +596,12 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/verify-reset-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
-    if (!email || !otp)
+    const lowerEmail = normalizeEmail(email);
+    if (!lowerEmail || !otp)
       return res.status(400).json({ message: 'Thiếu email hoặc mã OTP' });
+    if (!isValidEmail(lowerEmail))
+      return res.status(400).json({ message: 'Email không hợp lệ' });
 
-    const lowerEmail = email.toLowerCase().trim();
     const record = await PasswordReset.findOne({ email: lowerEmail });
     if (!record)
       return res.status(400).json({ message: 'Không tìm thấy yêu cầu đặt lại mật khẩu' });
@@ -614,8 +645,11 @@ router.post('/verify-reset-otp', async (req, res) => {
 router.post('/reset-password', async (req, res) => {
   try {
     const { email, resetToken, newPassword } = req.body;
-    if (!email || !resetToken || !newPassword)
+    const lowerEmail = normalizeEmail(email);
+    if (!lowerEmail || !resetToken || !newPassword)
       return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin' });
+    if (!isValidEmail(lowerEmail))
+      return res.status(400).json({ message: 'Email không hợp lệ' });
 
     // Kiểm tra chính sách mật khẩu an toàn (Min length 6, kết hợp cả chữ cái & chữ số)
     if (newPassword.length < 6)
@@ -626,8 +660,6 @@ router.post('/reset-password', async (req, res) => {
     if (!hasLetter || !hasNumber) {
       return res.status(400).json({ message: 'Mật khẩu mới phải bao gồm cả chữ cái và chữ số' });
     }
-
-    const lowerEmail = email.toLowerCase().trim();
 
     let decoded;
     try {

@@ -6,7 +6,7 @@ import ReportModal from './ReportModal';
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢'];
 
-export default function MessageItem({ message, onReact, onReply, isDM, onForwardClick, onViewProfile }) {
+export default function MessageItem({ message, onReact, onReply, isDM, onForwardClick, onEdit, onViewProfile }) {
   const { user } = useAuth();
   const { emit } = useSocket();
   const isOwn = message.sender._id?.toString() === user._id?.toString();
@@ -39,7 +39,11 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
 
   const handleSaveEdit = () => {
     if (!editValue.trim()) return;
-    emit('message:edit', { messageId: message._id, newContent: editValue });
+    if (onEdit) {
+      onEdit(message._id, editValue);
+    } else {
+      emit('message:edit', { messageId: message._id, newContent: editValue });
+    }
     setIsEditing(false);
   };
 
