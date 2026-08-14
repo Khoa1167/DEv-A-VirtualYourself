@@ -6,6 +6,7 @@ const Room = require('../models/Room');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 const { encryptReportContent } = require('../utils/crypto');
+const sendServerError = require('../utils/sendServerError');
 
 // ─── POST /api/reports — Gửi hoặc cập nhật báo cáo tin nhắn ─────────────────────
 router.post('/', protect, async (req, res) => {
@@ -141,7 +142,7 @@ router.get('/', protect, async (req, res) => {
 
     res.json(reports);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -199,7 +200,7 @@ router.post('/:id/resolve', protect, async (req, res) => {
     await report.save();
     res.json({ message: 'Đã cập nhật trạng thái báo cáo', report });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 

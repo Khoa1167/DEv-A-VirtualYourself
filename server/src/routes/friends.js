@@ -4,6 +4,7 @@ const Friendship = require('../models/Friendship');
 const User       = require('../models/User');
 const Room       = require('../models/Room');
 const { protect } = require('../middleware/auth');
+const sendServerError = require('../utils/sendServerError');
 
 // GET /api/friends — lấy danh sách bạn bè
 router.get('/', protect, async (req, res) => {
@@ -16,7 +17,7 @@ router.get('/', protect, async (req, res) => {
       .populate('receiver', 'username nickname avatar isOnline lastSeen');
     res.json(friends);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -29,7 +30,7 @@ router.get('/requests', protect, async (req, res) => {
     }).populate('sender', 'username nickname avatar');
     res.json(requests);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -50,7 +51,7 @@ router.get('/search', protect, async (req, res) => {
 
     res.json(users);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -101,7 +102,7 @@ router.post('/request/:userId', protect, async (req, res) => {
 
     res.status(201).json(friendship);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -149,7 +150,7 @@ router.put('/accept/:friendshipId', protect, async (req, res) => {
 
     res.json({ friendship, dmRoom });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -167,7 +168,7 @@ router.put('/reject/:friendshipId', protect, async (req, res) => {
 
     res.json({ message: 'Đã từ chối lời mời kết bạn' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -187,7 +188,7 @@ router.delete('/unfriend/:userId', protect, async (req, res) => {
 
     res.json({ message: 'Đã hủy kết bạn thành công' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -205,7 +206,7 @@ router.delete('/cancel/:userId', protect, async (req, res) => {
 
     res.json({ message: 'Đã hủy lời mời kết bạn' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -222,7 +223,7 @@ router.get('/dm/:userId', protect, async (req, res) => {
 
     res.json(dmRoom);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -324,7 +325,7 @@ router.get('/profile/:userId', protect, async (req, res) => {
       mutualRooms,
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -361,7 +362,7 @@ router.put('/alias/:userId', protect, async (req, res) => {
       customAlias: isSender ? friendship.senderAlias : friendship.receiverAlias,
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 

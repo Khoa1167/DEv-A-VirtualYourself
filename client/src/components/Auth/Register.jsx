@@ -144,7 +144,7 @@ export default function Register() {
   // ── Giao diện bước 1: Form đăng ký ──
   if (step === 1) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-base-200 px-4 py-8" data-theme="light">
+      <div className="min-h-screen flex items-center justify-center bg-base-200 px-4 py-8">
         <div className="card w-full max-w-lg bg-base-100 shadow-2xl border border-base-300/50">
           <div className="card-body p-8">
             <h1 className="text-3xl font-bold text-center text-primary mb-2">Đăng ký</h1>
@@ -260,7 +260,7 @@ export default function Register() {
 
   // ── Giao diện bước 2: Nhập OTP ──
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base-200 px-4" data-theme="light">
+    <div className="min-h-screen flex items-center justify-center bg-base-200 px-4">
       <div className="card w-full max-w-md bg-base-100 shadow-2xl border border-base-300/50">
         <div className="card-body p-8">
           <h1 className="text-3xl font-bold text-center text-primary mb-2">Đăng ký</h1>

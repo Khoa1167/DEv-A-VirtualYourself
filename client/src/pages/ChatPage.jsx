@@ -1,14 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
+import IconRail   from '../components/Chat/IconRail';
 import Sidebar    from '../components/Chat/Sidebar';
 import ChatWindow from '../components/Chat/ChatWindow';
 import FriendList from '../components/Chat/FriendList';
 import CallModal  from '../components/Chat/CallModal';
 import OtherUserProfileModal from '../components/Profile/OtherUserProfileModal';
+import ProfileModal from '../components/Profile/ProfileModal';
+import KeyBackupModal from '../components/Settings/KeyBackupModal';
 import { useSocket } from '../hooks/useSocket';
+import useTimedMessage from '../hooks/useTimedMessage';
 
 export default function ChatPage() {
   const [activeRoom, setActiveRoom] = useState(null);
   const [viewingUserId, setViewingUserId] = useState(null);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showKeyBackup, setShowKeyBackup] = useState(false);
+  const [toast, showToast] = useTimedMessage();
 
   // States cho tính năng cuộc gọi WebRTC
   const { on, emit } = useSocket();
@@ -87,7 +94,7 @@ export default function ChatPage() {
 
     } catch (err) {
       console.error('Không thể bắt đầu cuộc gọi:', err);
-      alert('Không thể truy cập camera hoặc microphone.');
+      showToast('Không thể truy cập camera hoặc microphone.');
       cleanupCall();
     }
   };
@@ -125,7 +132,7 @@ export default function ChatPage() {
 
     } catch (err) {
       console.error('Không thể chấp nhận cuộc gọi:', err);
-      alert('Lỗi kết nối cuộc gọi.');
+      showToast('Lỗi kết nối cuộc gọi.');
       cleanupCall();
     }
   };
@@ -214,7 +221,7 @@ export default function ChatPage() {
     });
 
     const offCallReject = on('call:reject', () => {
-      alert('Người dùng bận hoặc đã từ chối cuộc gọi.');
+      showToast('Người dùng bận hoặc đã từ chối cuộc gọi.');
       cleanupCall();
     });
 
@@ -234,9 +241,9 @@ export default function ChatPage() {
 
     const offCallFailed = on('call:failed', ({ reason }) => {
       if (reason === 'offline') {
-        alert('Người dùng hiện đang ngoại tuyến.');
+        showToast('Người dùng hiện đang ngoại tuyến.');
       } else {
-        alert('Cuộc gọi thất bại.');
+        showToast('Cuộc gọi thất bại.');
       }
       cleanupCall();
     });
@@ -249,32 +256,44 @@ export default function ChatPage() {
       offCallEnd();
       offCallFailed();
     };
-  }, [on]);
+  }, [on, showToast]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-black font-sans select-none relative">
+    <div className="flex h-screen w-screen overflow-hidden bg-base-100 text-base-content font-sans select-none relative">
+      {/* Cột 0: Thanh icon điều hướng toàn app */}
+      <IconRail
+        view={activeRoom ? 'chat' : 'friends'}
+        onSelectChat={() => {}}
+        onSelectFriends={() => setActiveRoom(null)}
+        onOpenProfile={() => setShowProfile(true)}
+        onOpenKeyBackup={() => setShowKeyBackup(true)}
+      />
+
       {/* Cột 1: Sidebar (Danh sách cuộc trò chuyện) */}
-      <div className="w-[360px] flex-shrink-0 flex flex-col bg-white border-r border-gray-200">
+      <div className="w-[360px] flex-shrink-0 flex flex-col bg-base-100 border-r border-base-300">
         <Sidebar activeRoom={activeRoom} onSelectRoom={setActiveRoom} />
       </div>
 
       {/* Cột 2: Vùng nội dung chính */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white">
+      <div className="flex-1 flex flex-col min-w-0 bg-base-100">
         {activeRoom ? (
-          <ChatWindow 
-            key={activeRoom._id} 
-            room={activeRoom} 
-            onBackToFriends={() => setActiveRoom(null)} 
+          <ChatWindow
+            key={activeRoom._id}
+            room={activeRoom}
+            onBackToFriends={() => setActiveRoom(null)}
             onInitiateCall={handleStartCall}
             onViewProfile={(userId) => setViewingUserId(userId)}
           />
         ) : (
-          <FriendList 
-            onSelectDM={setActiveRoom} 
+          <FriendList
+            onSelectDM={setActiveRoom}
             onViewProfile={(userId) => setViewingUserId(userId)}
           />
         )}
       </div>
+
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+      {showKeyBackup && <KeyBackupModal onClose={() => setShowKeyBackup(false)} />}
 
       {/* Cửa sổ Modal hiển thị cuộc gọi */}
       <CallModal
@@ -304,6 +323,15 @@ export default function ChatPage() {
           onSelectRoom={setActiveRoom}
           onInitiateCall={handleStartCall}
         />
+      )}
+
+      {/* Toast thông báo lỗi/trạng thái cuộc gọi */}
+      {toast && (
+        <div className="toast toast-top toast-end z-[100]">
+          <div className="alert alert-error text-sm">
+            <span>{toast}</span>
+          </div>
+        </div>
       )}
     </div>
   );

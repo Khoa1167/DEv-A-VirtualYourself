@@ -1,6 +1,7 @@
 const router      = require('express').Router();
 const jwt         = require('jsonwebtoken');
 const bcrypt      = require('bcryptjs');
+const mongoose    = require('mongoose');
 const User          = require('../models/User');
 const PendingUser   = require('../models/PendingUser');
 const PasswordReset = require('../models/PasswordReset');
@@ -13,6 +14,7 @@ const {
   sendEmailChangeNoticeEmail
 } = require('../config/mailer');
 const { uploadAvatar, uploadCover, deleteCloudinaryImage } = require('../config/cloudinary');
+const sendServerError = require('../utils/sendServerError');
 
 const crypto = require('crypto');
 
@@ -50,7 +52,7 @@ router.post('/send-otp', async (req, res) => {
     const normalizedPhone = normalizePhone(phone || '');
 
     // Validate cơ bản
-    if (!username || !password || !normalizedEmail)
+    if (typeof username !== 'string' || typeof password !== 'string' || !normalizedEmail)
       return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin' });
     if (username.length < 3)
       return res.status(400).json({ message: 'Tên tài khoản phải có ít nhất 3 ký tự' });
@@ -85,7 +87,7 @@ router.post('/send-otp', async (req, res) => {
 
     // Gửi email OTP
     await sendOTPEmail(normalizedEmail, otp);
-    console.log(`[DEBUG] OTP for ${normalizedEmail}: ${otp}`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[DEBUG] OTP for ${normalizedEmail}: ${otp}`);
 
     res.json({ message: 'OTP đã được gửi tới email của bạn' });
   } catch (err) {
@@ -154,7 +156,7 @@ router.post('/verify-otp', async (req, res) => {
     });
   } catch (err) {
     console.error('verify-otp error:', err);
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -162,10 +164,12 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/check-username', async (req, res) => {
   try {
     const { username } = req.body;
+    if (typeof username !== 'string')
+      return res.status(400).json({ message: 'Tên tài khoản không hợp lệ' });
     const exists = await User.findOne({ username });
     res.json({ available: !exists });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -173,10 +177,12 @@ router.post('/check-username', async (req, res) => {
 router.post('/check-nickname', async (req, res) => {
   try {
     const { nickname } = req.body;
+    if (typeof nickname !== 'string')
+      return res.status(400).json({ message: 'Tên hiển thị không hợp lệ' });
     const exists = await User.findOne({ nickname });
     res.json({ available: !exists });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -206,21 +212,42 @@ router.post('/set-nickname', protect, async (req, res) => {
     );
     res.json(user);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
+
+// Chống brute-force đăng nhập: tối đa 5 lần sai / 15 phút, tính theo username
+const loginFailedAttemptsMap = new Map();
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    if (typeof username !== 'string' || typeof password !== 'string')
+      return res.status(400).json({ message: 'Tên tài khoản hoặc mật khẩu không hợp lệ' });
+
+    const now = Date.now();
+    const failEntry = loginFailedAttemptsMap.get(username) || { count: 0, lockUntil: 0 };
+    if (now < failEntry.lockUntil) {
+      const waitMins = Math.ceil((failEntry.lockUntil - now) / 60000);
+      return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng nhập do nhập sai mật khẩu quá nhiều lần. Thử lại sau ${waitMins} phút.` });
+    }
+
     const user = await User.findOne({ username });
-    if (!user || !(await user.comparePassword(password)))
+    if (!user || !(await user.comparePassword(password))) {
+      failEntry.count += 1;
+      if (failEntry.count >= 5) {
+        failEntry.lockUntil = now + 15 * 60 * 1000;
+        failEntry.count = 0;
+      }
+      loginFailedAttemptsMap.set(username, failEntry);
       return res.status(401).json({ message: 'Sai tên tài khoản hoặc mật khẩu' });
+    }
+    loginFailedAttemptsMap.delete(username);
 
     res.json({ token: genToken(user._id), user });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -296,7 +323,7 @@ router.put('/profile', protect, async (req, res) => {
 
     res.json(user);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -354,7 +381,7 @@ router.post('/request-email-change', protect, async (req, res) => {
     // Gửi OTP về Email Mới để xác nhận quyền sở hữu hộp thư mới
     try {
       await sendEmailChangeOTPEmail(lowerNewEmail, otp);
-      console.log(`[SECURITY DEBUG] Email Change OTP for new email ${lowerNewEmail}: ${otp}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[SECURITY DEBUG] Email Change OTP for new email ${lowerNewEmail}: ${otp}`);
     } catch (mailErr) {
       console.error('Lỗi gửi mail OTP đổi email:', mailErr.message);
     }
@@ -450,7 +477,7 @@ router.put('/change-password', protect, async (req, res) => {
 
     res.json({ message: 'Đổi mật khẩu thành công' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -476,7 +503,7 @@ router.post('/avatar', protect, uploadAvatar.single('avatar'), async (req, res) 
 
     res.json(user);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -502,7 +529,7 @@ router.post('/cover', protect, uploadCover.single('cover'), async (req, res) => 
 
     res.json(user);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -524,7 +551,7 @@ router.delete('/cover', protect, async (req, res) => {
 
     res.json(user);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -580,7 +607,7 @@ router.post('/forgot-password', async (req, res) => {
     // Gửi Email OTP và bắt lỗi gián đoạn dịch vụ SMTP
     try {
       await sendResetPasswordOTPEmail(lowerEmail, otp);
-      console.log(`[SECURITY DEBUG] Reset Password OTP for ${lowerEmail}: ${otp}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[SECURITY DEBUG] Reset Password OTP for ${lowerEmail}: ${otp}`);
     } catch (mailErr) {
       console.error('Lỗi dịch vụ gửi mail SMTP:', mailErr.message);
     }
@@ -702,7 +729,6 @@ router.post('/reset-password', async (req, res) => {
 const failedPasswordMap = new Map();
 const mutationRateLimitMap = new Map();
 const renewalRateLimitMap = new Map();
-const getDevicesRateLimitMap = new Map();
 
 // Helper emit debounced key:changed event
 const debouncedKeyChangedTimers = new Map();
@@ -738,7 +764,9 @@ router.put('/devices', protect, async (req, res) => {
       return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng ký thiết bị do nhập sai mật khẩu quá 5 lần. Thử lại sau ${waitMins} phút.` });
     }
 
-    const isMatch = await req.user.comparePassword(currentPassword);
+    // req.user không có field password (bị protect middleware loại bỏ), phải fetch riêng để so khớp
+    const userWithPassword = await User.findById(req.user._id);
+    const isMatch = await userWithPassword.comparePassword(currentPassword);
     if (!isMatch) {
       failEntry.count += 1;
       if (failEntry.count >= 5) {
@@ -936,38 +964,7 @@ router.get('/devices', protect, async (req, res) => {
     const devices = req.user.devices.filter(d => includeRevoked || !d.isRevoked);
     res.json(devices);
   } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// ─── GET /api/users/:userId/devices — Lấy publicKeys các thiết bị của user khác
-router.get('/users/:userId/devices', protect, async (req, res) => {
-  try {
-    const callerId = req.user._id.toString();
-    const now = Date.now();
-
-    // Rate limit 60 req/phút/user
-    const limitEntry = getDevicesRateLimitMap.get(callerId) || { count: 0, resetTime: now + 60000 };
-    if (now > limitEntry.resetTime) { limitEntry.count = 0; limitEntry.resetTime = now + 60000; }
-    limitEntry.count += 1;
-    getDevicesRateLimitMap.set(callerId, limitEntry);
-
-    if (limitEntry.count > 60) {
-      return res.status(429).json({ message: 'Quá nhiều yêu cầu truy vấn thiết bị' });
-    }
-
-    const targetUser = await User.findById(req.params.userId).select('devices');
-    if (!targetUser) {
-      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
-    }
-
-    const activeDevices = targetUser.devices
-      .filter(d => !d.isRevoked)
-      .map(d => ({ deviceId: d.deviceId, publicKey: d.publicKey }));
-
-    res.json(activeDevices);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 

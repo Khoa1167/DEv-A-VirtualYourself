@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Paperclip, Mic, Send, Trash2 } from 'lucide-react';
 import api from '../../services/api';
 import { scanLinksInText } from '../../utils/securityScan';
 
@@ -46,6 +47,17 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
   };
   const [recordingTime, setRecordingTime] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadErrors, setUploadErrors] = useState([]);
+
+  // Mỗi lỗi có timer tự ẩn riêng, để nhiều lỗi liên tiếp (vd: gửi nhiều file cùng lúc,
+  // vài file lỗi) không bị đè mất trước khi người dùng kịp đọc.
+  const showUploadError = (text) => {
+    const id = Date.now() + Math.random();
+    setUploadErrors(prev => [...prev, { id, text }]);
+    setTimeout(() => {
+      setUploadErrors(prev => prev.filter(e => e.id !== id));
+    }, 3500);
+  };
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
@@ -90,7 +102,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
           }
         } catch (err) {
           console.error(`Lỗi khi tải ảnh ${item.file.name}:`, err);
-          alert(`Gửi ảnh ${item.file.name} thất bại.`);
+          showUploadError(`Gửi ảnh ${item.file.name} thất bại.`);
         }
       }
 
@@ -148,7 +160,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
           }
         } catch (err) {
           console.error(`Lỗi khi tải file ${item.file.name}:`, err);
-          alert(`Gửi tệp ${item.file.name} thất bại.`);
+          showUploadError(`Gửi tệp ${item.file.name} thất bại.`);
         }
       }
 
@@ -194,7 +206,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
 
     } catch (err) {
       console.error('Không thể truy cập Microphone:', err);
-      alert('Không thể truy cập microphone. Vui lòng kiểm tra quyền thiết bị.');
+      showUploadError('Không thể truy cập microphone. Vui lòng kiểm tra quyền thiết bị.');
     }
   };
 
@@ -237,7 +249,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
 
       } catch (err) {
         console.error('Lỗi khi tải tệp âm thanh lên:', err);
-        alert('Gửi tin nhắn thoại thất bại. Vui lòng thử lại.');
+        showUploadError('Gửi tin nhắn thoại thất bại. Vui lòng thử lại.');
       } finally {
         setIsUploading(false);
       }
@@ -270,13 +282,23 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
   }, []);
 
   return (
-    <div className="px-4 py-3 bg-white flex flex-col gap-1 border-t border-gray-100">
+    <div className="px-4 py-3 bg-base-100 flex flex-col gap-1 border-t border-base-200 relative">
+      {uploadErrors.length > 0 && (
+        <div className="toast toast-top toast-center z-[100]">
+          {uploadErrors.map(e => (
+            <div key={e.id} className="alert alert-error text-sm">
+              <span>{e.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {replyTo && (
-        <div className="flex justify-between items-center bg-[#f0f2f5] border-l-2 border-[#0084ff] rounded-lg px-3.5 py-1.5 text-xs text-gray-700 shadow-xs mb-1">
+        <div className="flex justify-between items-center bg-base-200 border-l-2 border-primary rounded-lg px-3.5 py-1.5 text-xs shadow-xs mb-1">
           <span>
-            ↩ Đang trả lời <strong className="font-bold text-[#0084ff]">@{replyTo.sender.nickname || replyTo.sender.username}</strong>
+            ↩ Đang trả lời <strong className="font-bold text-primary">@{replyTo.sender.nickname || replyTo.sender.username}</strong>
           </span>
-          <button onClick={onCancelReply} className="hover:text-black text-[10px] cursor-pointer font-bold px-2 py-0.5 rounded bg-gray-200">✕ Hủy</button>
+          <button onClick={onCancelReply} className="btn btn-xs btn-ghost bg-base-300">✕ Hủy</button>
         </div>
       )}
 
@@ -284,26 +306,26 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
       {selectedFiles.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2 px-1 max-h-32 overflow-y-auto hide-scrollbar">
           {selectedFiles.map(item => (
-            <div key={item.id} className="relative flex items-center bg-gray-100 border border-gray-200 rounded-lg p-1.5 max-w-[180px] shadow-3xs">
+            <div key={item.id} className="relative flex items-center bg-base-200 border border-base-300 rounded-lg p-1.5 max-w-[180px] shadow-3xs">
               {item.isImage ? (
-                <img 
-                  src={item.previewUrl} 
-                  alt="preview" 
-                  className="w-10 h-10 rounded-md object-cover" 
+                <img
+                  src={item.previewUrl}
+                  alt="preview"
+                  className="w-10 h-10 rounded-md object-cover"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-md bg-gray-200 flex items-center justify-center text-lg select-none">
+                <div className="w-10 h-10 rounded-md bg-base-300 flex items-center justify-center text-lg select-none">
                   📄
                 </div>
               )}
               <div className="ml-2 flex-1 min-w-0 pr-4">
-                <p className="text-[11px] font-semibold text-gray-700 truncate">{item.file.name}</p>
-                <p className="text-[9px] text-gray-400">{(item.file.size / 1024).toFixed(1)} KB</p>
+                <p className="text-[11px] font-semibold truncate">{item.file.name}</p>
+                <p className="text-[9px] text-base-content/40">{(item.file.size / 1024).toFixed(1)} KB</p>
               </div>
               <button
                 type="button"
                 onClick={() => removeSelectedFile(item.id)}
-                className="absolute -top-1.5 -right-1.5 w-4.5 h-4.5 rounded-full bg-gray-400 hover:bg-red-500 text-white flex items-center justify-center text-[10px] font-bold shadow-xs cursor-pointer select-none transition-all active:scale-90"
+                className="btn btn-circle btn-error text-white absolute -top-1.5 -right-1.5 w-4.5 h-4.5 min-h-0 h-4.5 text-[10px]"
                 title="Xóa"
               >
                 ✕
@@ -315,47 +337,47 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
 
       {isRecording ? (
         // Giao diện khi đang ghi âm
-        <div className="flex items-center justify-between bg-[#ffebee] border border-[#ffcdd2] rounded-full px-4 py-2 text-red-600 font-semibold animate-pulse">
+        <div className="flex items-center justify-between bg-error/10 border border-error/30 rounded-full px-4 py-2 text-error font-semibold animate-pulse">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
+            <span className="w-2.5 h-2.5 rounded-full bg-error animate-ping" />
             <span className="text-sm">Đang ghi âm...</span>
-            <span className="ml-2 font-mono text-sm bg-red-100 text-red-700 px-2 py-0.5 rounded-md">{formatTime(recordingTime)}</span>
+            <span className="badge badge-error badge-outline ml-2 font-mono">{formatTime(recordingTime)}</span>
           </div>
 
           <div className="flex items-center gap-3">
             {/* Nút hủy ghi âm */}
-            <button 
+            <button
               type="button"
               onClick={cancelRecording}
-              className="text-gray-500 hover:text-red-600 text-sm cursor-pointer select-none font-bold bg-white hover:bg-red-50 border border-gray-200 px-3 py-1 rounded-full shadow-2xs transition-colors"
+              className="btn btn-sm btn-ghost bg-base-100 rounded-full gap-1.5"
               title="Hủy ghi âm"
             >
-              🗑️ Hủy
+              <Trash2 className="w-3.5 h-3.5" /> Hủy
             </button>
 
             {/* Nút gửi ghi âm */}
-            <button 
+            <button
               type="button"
               onClick={stopAndSendRecording}
-              className="bg-red-600 hover:bg-red-700 text-white text-sm cursor-pointer select-none font-bold px-4 py-1 rounded-full shadow-sm active:scale-95 transition-all"
+              className="btn btn-sm btn-error text-white rounded-full gap-1.5"
               disabled={isUploading}
             >
-              {isUploading ? 'Đang gửi...' : '📤 Gửi'}
+              {isUploading ? 'Đang gửi...' : (<><Send className="w-3.5 h-3.5" /> Gửi</>)}
             </button>
           </div>
         </div>
       ) : (
         // Giao diện bình thường
-        <form onSubmit={handleSubmit} className="flex items-center bg-[#f0f2f5] rounded-full px-4 py-2">
+        <form onSubmit={handleSubmit} className="join w-full items-center bg-base-200 rounded-full px-4 py-2">
           {/* Nút cộng đính kèm */}
-          <button 
+          <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="text-[#0084ff] hover:text-[#006aff] font-black cursor-pointer text-base mr-3 transition-transform hover:scale-110 active:scale-95 select-none"
+            className="btn btn-circle btn-ghost btn-sm text-base-content/60 hover:text-primary mr-1"
             disabled={isSending}
             title="Đính kèm ảnh/tệp tin"
           >
-            ➕
+            <Paperclip className="w-4 h-4" />
           </button>
           <input
             type="file"
@@ -366,31 +388,17 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
           />
 
           {/* Nút Microphone */}
-          <button 
+          <button
             type="button"
             onClick={startRecording}
-            className="mr-3 transition-transform hover:scale-110 active:scale-95 cursor-pointer select-none"
+            className="btn btn-circle btn-ghost btn-sm text-base-content/60 hover:text-primary mr-1"
             title="Ghi âm thoại"
           >
-            <svg className="w-6.5 h-6.5 drop-shadow-xs" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="micGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#09a6df" />
-                  <stop offset="100%" stopColor="#2ac1b2" />
-                </linearGradient>
-              </defs>
-              <circle cx="12" cy="12" r="12" fill="url(#micGrad)" />
-              {/* Capsule */}
-              <rect x="9.5" y="6.5" width="5" height="9" rx="2.5" stroke="white" strokeWidth="1.2" />
-              {/* U-shape holder */}
-              <path d="M7.5 11C7.5 13.5 9.5 15.5 12 15.5C14.5 15.5 16.5 13.5 16.5 11" stroke="white" strokeWidth="1.2" strokeLinecap="round" />
-              {/* Stand */}
-              <path d="M12 15.5V18" stroke="white" strokeWidth="1.2" strokeLinecap="round" />
-            </svg>
+            <Mic className="w-4 h-4" />
           </button>
 
           <input
-            className="bg-transparent border-none text-black placeholder-gray-500 text-sm focus:outline-none flex-1 w-full"
+            className="input input-ghost bg-transparent focus:outline-none flex-1 w-full text-sm"
             value={content}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
@@ -402,14 +410,15 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
           {/* Nút gửi tin nhắn */}
           <button
             type="submit"
-            className={`ml-2 text-sm font-bold cursor-pointer transition-colors ${
+            className={`btn btn-circle btn-sm ml-2 ${
               (content.trim() || selectedFiles.length > 0) && !isSending
-                ? 'text-[#0084ff] hover:text-[#006aff]' 
-                : 'text-gray-400 cursor-not-allowed'
+                ? 'btn-primary text-white'
+                : 'btn-disabled bg-base-300 text-base-content/30'
             }`}
             disabled={(!content.trim() && selectedFiles.length === 0) || isSending}
+            title="Gửi"
           >
-            {isSending ? 'Đang gửi...' : 'Gửi'}
+            <Send className="w-3.5 h-3.5" />
           </button>
         </form>
       )}

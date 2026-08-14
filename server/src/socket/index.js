@@ -116,7 +116,8 @@ const setupSocket = (io) => {
         await Room.findByIdAndUpdate(roomId, { lastMessage: msg._id });
 
         // Zero-Knowledge Relay: Trả nguyên bản mã cho tất cả client tự giải mã
-        const clientMsg = msg.toObject();
+        // flattenMaps: encryptedKeys là Mongoose Map, JSON.stringify(Map) trả về "{}" nếu không flatten
+        const clientMsg = msg.toObject({ flattenMaps: true });
         io.to(roomId).emit('message:new', clientMsg);
       } catch (err) {
         socket.emit('error', { message: err.message });

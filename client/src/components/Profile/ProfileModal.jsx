@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import useTimedMessage from '../../hooks/useTimedMessage';
 
 export default function ProfileModal({ onClose }) {
   const { user, setUser } = useAuth();
@@ -44,6 +45,7 @@ export default function ProfileModal({ onClose }) {
   const [avatarPreview, setAvatarPreview] = useState(user.avatar || '');
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  const [mediaError, showMediaError] = useTimedMessage();
 
   // Kiểm tra nickname realtime với debounce
   const checkNickname = (value) => {
@@ -87,7 +89,7 @@ export default function ProfileModal({ onClose }) {
       setUser(data);
       setAvatarFile(null);
     } catch (err) {
-      alert(err.response?.data?.message || 'Upload avatar thất bại');
+      showMediaError(err.response?.data?.message || 'Upload avatar thất bại');
     } finally {
       setAvatarLoading(false);
     }
@@ -117,7 +119,7 @@ export default function ProfileModal({ onClose }) {
       setUser(data);
       setCoverFile(null);
     } catch (err) {
-      alert(err.response?.data?.message || 'Upload ảnh bìa thất bại');
+      showMediaError(err.response?.data?.message || 'Upload ảnh bìa thất bại');
     } finally {
       setCoverLoading(false);
     }
@@ -132,7 +134,7 @@ export default function ProfileModal({ onClose }) {
       setCoverPreview('');
       setCoverFile(null);
     } catch (err) {
-      alert(err.response?.data?.message || 'Xóa ảnh bìa thất bại');
+      showMediaError(err.response?.data?.message || 'Xóa ảnh bìa thất bại');
     } finally {
       setCoverLoading(false);
     }
@@ -233,26 +235,34 @@ export default function ProfileModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" onClick={onClose}>
-      <div className="card w-full max-w-md bg-white text-black border border-gray-200 relative overflow-hidden shadow-2xl rounded-2xl font-sans" onClick={e => e.stopPropagation()}>
+    <div className="modal modal-open bg-black/50 backdrop-blur-sm z-50" onClick={onClose}>
+      <div className="modal-box p-0 max-w-md bg-base-100 border border-base-300 shadow-2xl" onClick={e => e.stopPropagation()}>
+        {mediaError && (
+          <div className="toast toast-top toast-center z-[110]">
+            <div className="alert alert-error text-sm">
+              <span>{mediaError}</span>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
-        <div className="p-5 pb-4 border-b border-gray-100 flex items-center justify-between bg-white">
-          <h2 className="text-lg font-bold text-gray-900">Cài đặt cá nhân</h2>
-          <button className="hover:bg-gray-100 text-gray-500 hover:text-black text-xs cursor-pointer bg-gray-50 px-3 py-1.5 rounded-full font-semibold" onClick={onClose}>✕ Đóng</button>
+        <div className="p-5 pb-4 border-b border-base-300 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Cài đặt cá nhân</h2>
+          <button className="btn btn-sm btn-ghost bg-base-200 rounded-full" onClick={onClose}>✕ Đóng</button>
         </div>
 
-        <div className="overflow-y-auto max-h-[70vh] p-6 hide-scrollbar flex flex-col gap-5 bg-white">
+        <div className="overflow-y-auto max-h-[70vh] p-6 hide-scrollbar flex flex-col gap-5">
           {/* Cover & Avatar Header */}
           <div className="flex flex-col items-center gap-3">
-            <div className="relative w-full h-32 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 overflow-hidden shadow-xs group">
+            <div className="relative w-full h-32 rounded-xl bg-gradient-to-r from-primary to-secondary overflow-hidden shadow-xs group">
               {coverPreview ? (
                 <img src={coverPreview} alt="cover" className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center text-white/50 text-xs font-semibold">
+                <div className="w-full h-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center text-primary-content/50 text-xs font-semibold">
                   Chưa có ảnh bìa
                 </div>
               )}
-              <div 
+              <div
                 className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5 cursor-pointer backdrop-blur-[1px]"
                 onClick={() => coverInputRef.current?.click()}
               >
@@ -266,7 +276,7 @@ export default function ProfileModal({ onClose }) {
               {user.cover && !coverFile && (
                 <button
                   type="button"
-                  className="absolute top-2.5 right-2.5 z-10 bg-black/60 hover:bg-red-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-xs transition-colors cursor-pointer flex items-center gap-1 shadow-sm opacity-0 group-hover:opacity-100"
+                  className="btn btn-xs bg-black/60 hover:bg-error border-none text-white absolute top-2.5 right-2.5 z-10 opacity-0 group-hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleDeleteCover();
@@ -288,14 +298,14 @@ export default function ProfileModal({ onClose }) {
 
             {/* Avatar Section */}
             <div
-              className="group relative cursor-pointer shadow-md rounded-full -mt-10"
+              className="avatar group relative cursor-pointer shadow-md -mt-10"
               onClick={() => fileInputRef.current?.click()}
             >
-              <div className="w-20 h-20 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-2xl overflow-hidden ring-4 ring-white shadow-md">
+              <div className="w-20 rounded-full bg-primary text-primary-content font-bold text-2xl ring-4 ring-base-100 shadow-md">
                 {avatarPreview ? (
-                  <img src={avatarPreview} alt="avatar" className="object-cover w-full h-full" />
+                  <img src={avatarPreview} alt="avatar" />
                 ) : (
-                  <span>{(user.nickname || user.username)[0].toUpperCase()}</span>
+                  <span className="w-full h-full flex items-center justify-center">{(user.nickname || user.username)[0].toUpperCase()}</span>
                 )}
               </div>
               <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -316,15 +326,17 @@ export default function ProfileModal({ onClose }) {
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-gray-100 w-full mb-2">
+          <div role="tablist" className="tabs tabs-bordered w-full mb-2">
             <button
-              className={`flex-1 font-bold text-xs pb-2 border-b-2 text-center transition-colors cursor-pointer ${tab === 'info' ? 'border-[#0084ff] text-[#0084ff]' : 'border-transparent text-gray-500 hover:text-black'}`}
+              role="tab"
+              className={`tab flex-1 font-bold ${tab === 'info' ? 'tab-active' : ''}`}
               onClick={() => setTab('info')}
             >
               Thông tin tài khoản
             </button>
             <button
-              className={`flex-1 font-bold text-xs pb-2 border-b-2 text-center transition-colors cursor-pointer ${tab === 'password' ? 'border-[#0084ff] text-[#0084ff]' : 'border-transparent text-gray-500 hover:text-black'}`}
+              role="tab"
+              className={`tab flex-1 font-bold ${tab === 'password' ? 'tab-active' : ''}`}
               onClick={() => setTab('password')}
             >
               Đổi mật khẩu
@@ -335,14 +347,14 @@ export default function ProfileModal({ onClose }) {
           {tab === 'info' && (
             <form onSubmit={handleSaveInfo} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tên tài khoản</label>
-                <input value={user.username} disabled className="bg-gray-50 text-gray-400 border border-gray-100 rounded-lg py-2 px-3 text-sm cursor-not-allowed w-full select-none" />
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Tên tài khoản</label>
+                <input value={user.username} disabled className="input input-bordered input-sm bg-base-200 text-base-content/40 w-full select-none" />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Biệt danh</label>
-                <p className="text-[10px] text-gray-400">
-                  Biệt danh chỉ được thay đổi <strong className="text-black font-semibold">7 ngày 1 lần</strong>
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Biệt danh</label>
+                <p className="text-[10px] text-base-content/40">
+                  Biệt danh chỉ được thay đổi <strong className="text-base-content font-semibold">7 ngày 1 lần</strong>
                 </p>
                 {(() => {
                   const canChange = !user.nicknameChangedAt ||
@@ -354,7 +366,7 @@ export default function ProfileModal({ onClose }) {
                   return canChange ? (
                     <>
                       <input
-                        className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                        className="input input-bordered input-sm focus:input-primary w-full"
                         value={form.nickname}
                         onChange={e => checkNickname(e.target.value)}
                         minLength={2}
@@ -363,8 +375,8 @@ export default function ProfileModal({ onClose }) {
                     </>
                   ) : (
                     <>
-                      <input value={form.nickname} disabled className="bg-gray-50 text-gray-400 border border-gray-100 rounded-lg py-2 px-3 text-sm cursor-not-allowed w-full select-none" />
-                      <p className="text-[10px] text-red-500 font-semibold mt-1">
+                      <input value={form.nickname} disabled className="input input-bordered input-sm bg-base-200 text-base-content/40 w-full select-none" />
+                      <p className="text-[10px] text-error font-semibold mt-1">
                         ⚠️ Còn {daysLeft} ngày nữa mới được đổi tên hiển thị
                       </p>
                     </>
@@ -374,7 +386,7 @@ export default function ProfileModal({ onClose }) {
 
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Email</label>
+                  <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Email</label>
                   <button
                     type="button"
                     onClick={() => {
@@ -384,7 +396,7 @@ export default function ProfileModal({ onClose }) {
                       setEmailForm({ currentPassword: '', newEmail: '', otp: '' });
                       setShowEmailModal(true);
                     }}
-                    className="text-xs text-[#0084ff] hover:underline font-bold cursor-pointer"
+                    className="text-xs text-primary hover:underline font-bold cursor-pointer"
                   >
                     Đổi Email
                   </button>
@@ -393,19 +405,19 @@ export default function ProfileModal({ onClose }) {
                   <input
                     type="email"
                     disabled
-                    className="bg-gray-50 text-gray-500 border border-gray-100 rounded-lg py-2 px-3 text-sm cursor-not-allowed w-full select-none"
+                    className="input input-bordered input-sm bg-base-200 text-base-content/50 w-full select-none"
                     value={user.email || ''}
                   />
-                  <span className="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-1.5 rounded-lg shrink-0 flex items-center gap-1">
+                  <span className="badge badge-success badge-outline shrink-0 gap-1">
                     ✓ Đã xác minh
                   </span>
                 </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Số điện thoại</label>
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Số điện thoại</label>
                 <input
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                  className="input input-bordered input-sm focus:input-primary w-full"
                   value={form.phone}
                   onChange={e => setForm({ ...form, phone: e.target.value })}
                   placeholder="Chưa thêm số điện thoại"
@@ -413,19 +425,19 @@ export default function ProfileModal({ onClose }) {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Ngày sinh</label>
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Ngày sinh</label>
                 <input
                   type="date"
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full cursor-pointer"
+                  className="input input-bordered input-sm focus:input-primary w-full cursor-pointer"
                   value={form.dateOfBirth}
                   onChange={e => setForm({ ...form, dateOfBirth: e.target.value })}
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Giới tính</label>
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Giới tính</label>
                 <select
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full cursor-pointer"
+                  className="select select-bordered select-sm focus:select-primary w-full cursor-pointer"
                   value={form.gender}
                   onChange={e => setForm({ ...form, gender: e.target.value })}
                 >
@@ -438,13 +450,13 @@ export default function ProfileModal({ onClose }) {
 
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mô tả bản thân</label>
-                  <span className="text-[10px] text-gray-400 font-medium">{form.bio.length}/150</span>
+                  <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mô tả bản thân</label>
+                  <span className="text-[10px] text-base-content/40 font-medium">{form.bio.length}/150</span>
                 </div>
                 <textarea
                   rows={3}
                   maxLength={150}
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full resize-none"
+                  className="textarea textarea-bordered focus:textarea-primary text-sm w-full resize-none"
                   placeholder="Giới thiệu một chút về bản thân bạn..."
                   value={form.bio}
                   onChange={e => setForm({ ...form, bio: e.target.value })}
@@ -452,17 +464,17 @@ export default function ProfileModal({ onClose }) {
               </div>
 
               {infoError && (
-                <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
-                  {infoError}
+                <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
+                  <span>{infoError}</span>
                 </div>
               )}
               {infoSuccess && (
-                <div className="bg-green-50 text-green-600 border border-green-100 py-2 px-3 text-xs font-semibold rounded-lg">
-                  {infoSuccess}
+                <div className="alert alert-success py-2 px-3 text-xs font-semibold rounded-lg">
+                  <span>{infoSuccess}</span>
                 </div>
               )}
 
-              <button type="submit" className="bg-[#0084ff] hover:bg-[#0073de] text-white font-bold text-sm py-2.5 rounded-full transition-colors cursor-pointer shadow-xs mt-2" disabled={infoLoading}>
+              <button type="submit" className="btn btn-primary text-white rounded-full mt-2" disabled={infoLoading}>
                 {infoLoading ? 'Đang lưu...' : 'Lưu thay đổi'}
               </button>
             </form>
@@ -472,10 +484,10 @@ export default function ProfileModal({ onClose }) {
           {tab === 'password' && (
             <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mật khẩu hiện tại</label>
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu hiện tại</label>
                 <input
                   type="password"
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                  className="input input-bordered input-sm focus:input-primary w-full"
                   value={pwForm.currentPassword}
                   onChange={e => setPwForm({ ...pwForm, currentPassword: e.target.value })}
                   required
@@ -483,10 +495,10 @@ export default function ProfileModal({ onClose }) {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mật khẩu mới</label>
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu mới</label>
                 <input
                   type="password"
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                  className="input input-bordered input-sm focus:input-primary w-full"
                   value={pwForm.newPassword}
                   onChange={e => setPwForm({ ...pwForm, newPassword: e.target.value })}
                   required minLength={6}
@@ -494,10 +506,10 @@ export default function ProfileModal({ onClose }) {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Xác nhận mật khẩu mới</label>
+                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Xác nhận mật khẩu mới</label>
                 <input
                   type="password"
-                  className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                  className="input input-bordered input-sm focus:input-primary w-full"
                   value={pwForm.confirmPassword}
                   onChange={e => setPwForm({ ...pwForm, confirmPassword: e.target.value })}
                   required
@@ -505,17 +517,17 @@ export default function ProfileModal({ onClose }) {
               </div>
 
               {pwError && (
-                <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
-                  {pwError}
+                <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
+                  <span>{pwError}</span>
                 </div>
               )}
               {pwSuccess && (
-                <div className="bg-green-50 text-green-600 border border-green-100 py-2 px-3 text-xs font-semibold rounded-lg">
-                  {pwSuccess}
+                <div className="alert alert-success py-2 px-3 text-xs font-semibold rounded-lg">
+                  <span>{pwSuccess}</span>
                 </div>
               )}
 
-              <button type="submit" className="bg-[#0084ff] hover:bg-[#0073de] text-white font-bold text-sm py-2.5 rounded-full transition-colors cursor-pointer shadow-xs mt-2" disabled={pwLoading}>
+              <button type="submit" className="btn btn-primary text-white rounded-full mt-2" disabled={pwLoading}>
                 {pwLoading ? 'Đang đổi...' : 'Đổi mật khẩu'}
               </button>
             </form>
@@ -524,7 +536,7 @@ export default function ProfileModal({ onClose }) {
 
         {/* Popup Floating Confirm Bar cho Ảnh bìa */}
         {coverFile && (
-          <div className="absolute bottom-4 left-4 right-4 z-30 bg-gray-900/90 text-white backdrop-blur-md p-3.5 rounded-xl shadow-2xl flex items-center justify-between border border-white/10 animate-fade-in">
+          <div className="absolute bottom-4 left-4 right-4 z-30 bg-neutral text-neutral-content backdrop-blur-md p-3.5 rounded-xl shadow-2xl flex items-center justify-between border border-white/10 animate-fade-in">
             <div className="text-xs font-semibold">
               <span>Xác nhận lưu ảnh bìa mới?</span>
             </div>
@@ -535,7 +547,7 @@ export default function ProfileModal({ onClose }) {
                   setCoverFile(null);
                   setCoverPreview(user.cover || '');
                 }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
+                className="btn btn-xs bg-white/10 hover:bg-white/20 border-none text-neutral-content/70 hover:text-white"
                 disabled={coverLoading}
               >
                 Hủy
@@ -544,7 +556,7 @@ export default function ProfileModal({ onClose }) {
                 type="button"
                 onClick={handleUploadCover}
                 disabled={coverLoading}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0084ff] hover:bg-[#0073de] text-white shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                className="btn btn-xs btn-primary text-white"
               >
                 {coverLoading ? 'Đang lưu...' : 'Lưu ảnh bìa'}
               </button>
@@ -554,7 +566,7 @@ export default function ProfileModal({ onClose }) {
 
         {/* Popup Floating Confirm Bar cho Avatar */}
         {avatarFile && (
-          <div className="absolute bottom-4 left-4 right-4 z-30 bg-gray-900/90 text-white backdrop-blur-md p-3.5 rounded-xl shadow-2xl flex items-center justify-between border border-white/10 animate-fade-in">
+          <div className="absolute bottom-4 left-4 right-4 z-30 bg-neutral text-neutral-content backdrop-blur-md p-3.5 rounded-xl shadow-2xl flex items-center justify-between border border-white/10 animate-fade-in">
             <div className="text-xs font-semibold">
               <span>Xác nhận lưu avatar mới?</span>
             </div>
@@ -565,7 +577,7 @@ export default function ProfileModal({ onClose }) {
                   setAvatarFile(null);
                   setAvatarPreview(user.avatar || '');
                 }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
+                className="btn btn-xs bg-white/10 hover:bg-white/20 border-none text-neutral-content/70 hover:text-white"
                 disabled={avatarLoading}
               >
                 Hủy
@@ -574,7 +586,7 @@ export default function ProfileModal({ onClose }) {
                 type="button"
                 onClick={handleUploadAvatar}
                 disabled={avatarLoading}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0084ff] hover:bg-[#0073de] text-white shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                className="btn btn-xs btn-primary text-white"
               >
                 {avatarLoading ? 'Đang lưu...' : 'Lưu Avatar'}
               </button>
@@ -584,16 +596,16 @@ export default function ProfileModal({ onClose }) {
 
         {/* Modal Đổi Email Bảo Mật (OTP) */}
         {showEmailModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" onClick={() => setShowEmailModal(false)}>
-            <div className="card w-full max-w-sm bg-white text-black border border-gray-200 relative overflow-hidden shadow-2xl rounded-2xl p-6 flex flex-col gap-4 font-sans animate-fade-in" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-                <h3 className="text-base font-bold text-gray-900">
+          <div className="modal modal-open bg-black/50 backdrop-blur-sm z-[60]" onClick={() => setShowEmailModal(false)}>
+            <div className="modal-box max-w-sm bg-base-100 border border-base-300 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-base-300 pb-3 mb-4">
+                <h3 className="text-base font-bold">
                   {emailStep === 1 ? 'Thay đổi địa chỉ Email' : 'Nhập mã xác minh OTP'}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowEmailModal(false)}
-                  className="hover:bg-gray-100 text-gray-500 hover:text-black text-xs cursor-pointer bg-gray-50 px-2.5 py-1 rounded-full font-semibold"
+                  className="btn btn-sm btn-circle btn-ghost"
                 >
                   ✕
                 </button>
@@ -601,16 +613,16 @@ export default function ProfileModal({ onClose }) {
 
               {emailStep === 1 ? (
                 <form onSubmit={handleRequestEmailChange} className="flex flex-col gap-4">
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-base-content/60">
                     Để đảm bảo an toàn tài khoản, vui lòng nhập <strong>mật khẩu hiện tại</strong> và <strong>email mới</strong>. Mã OTP xác thực sẽ được gửi tới <strong>email mới</strong> và một thông báo cảnh báo bảo mật sẽ được gửi về <strong>email hiện tại</strong> của bạn.
                   </p>
 
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mật khẩu hiện tại</label>
+                    <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu hiện tại</label>
                     <input
                       type="password"
                       required
-                      className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                      className="input input-bordered input-sm focus:input-primary w-full"
                       value={emailForm.currentPassword}
                       onChange={e => setEmailForm({ ...emailForm, currentPassword: e.target.value })}
                       placeholder="••••••••"
@@ -618,11 +630,11 @@ export default function ProfileModal({ onClose }) {
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Email mới</label>
+                    <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Email mới</label>
                     <input
                       type="email"
                       required
-                      className="bg-white border border-gray-200 text-black focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 text-sm outline-none w-full"
+                      className="input input-bordered input-sm focus:input-primary w-full"
                       value={emailForm.newEmail}
                       onChange={e => setEmailForm({ ...emailForm, newEmail: e.target.value })}
                       placeholder="example@gmail.com"
@@ -630,8 +642,8 @@ export default function ProfileModal({ onClose }) {
                   </div>
 
                   {emailError && (
-                    <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
-                      {emailError}
+                    <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
+                      <span>{emailError}</span>
                     </div>
                   )}
 
@@ -639,14 +651,14 @@ export default function ProfileModal({ onClose }) {
                     <button
                       type="button"
                       onClick={() => setShowEmailModal(false)}
-                      className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-black bg-gray-100 hover:bg-gray-200 rounded-full cursor-pointer"
+                      className="btn btn-sm btn-ghost bg-base-200 rounded-full"
                     >
                       Hủy
                     </button>
                     <button
                       type="submit"
                       disabled={emailLoading}
-                      className="px-4 py-2 text-xs font-bold text-white bg-[#0084ff] hover:bg-[#0073de] rounded-full cursor-pointer shadow-xs disabled:opacity-50"
+                      className="btn btn-sm btn-primary text-white rounded-full"
                     >
                       {emailLoading ? 'Đang gửi mã...' : 'Gửi mã OTP'}
                     </button>
@@ -654,17 +666,17 @@ export default function ProfileModal({ onClose }) {
                 </form>
               ) : (
                 <form onSubmit={handleVerifyEmailChange} className="flex flex-col gap-4">
-                  <div className="bg-blue-50 text-blue-800 border border-blue-100 py-2.5 px-3 text-xs rounded-lg">
-                    {emailSuccess || `Mã OTP 6 số đã được gửi tới địa chỉ email mới (${emailForm.newEmail}).`}
+                  <div className="alert alert-info text-xs py-2.5 px-3 rounded-lg">
+                    <span>{emailSuccess || `Mã OTP 6 số đã được gửi tới địa chỉ email mới (${emailForm.newEmail}).`}</span>
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Mã OTP (6 chữ số)</label>
+                    <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mã OTP (6 chữ số)</label>
                     <input
                       type="text"
                       required
                       maxLength={6}
-                      className="bg-white border border-gray-200 text-black text-center tracking-[8px] font-mono font-bold text-lg focus:border-[#0084ff] focus:ring-1 focus:ring-[#0084ff] rounded-lg py-2 px-3 outline-none w-full"
+                      className="input input-bordered focus:input-primary text-center tracking-[8px] font-mono font-bold text-lg w-full"
                       value={emailForm.otp}
                       onChange={e => setEmailForm({ ...emailForm, otp: e.target.value })}
                       placeholder="123456"
@@ -672,8 +684,8 @@ export default function ProfileModal({ onClose }) {
                   </div>
 
                   {emailError && (
-                    <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
-                      {emailError}
+                    <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
+                      <span>{emailError}</span>
                     </div>
                   )}
 
@@ -681,14 +693,14 @@ export default function ProfileModal({ onClose }) {
                     <button
                       type="button"
                       onClick={() => setEmailStep(1)}
-                      className="text-xs text-[#0084ff] hover:underline font-bold cursor-pointer"
+                      className="text-xs text-primary hover:underline font-bold cursor-pointer"
                     >
                       ← Nhập lại email
                     </button>
                     <button
                       type="submit"
                       disabled={emailLoading}
-                      className="px-4 py-2 text-xs font-bold text-white bg-[#0084ff] hover:bg-[#0073de] rounded-full cursor-pointer shadow-xs disabled:opacity-50"
+                      className="btn btn-sm btn-primary text-white rounded-full"
                     >
                       {emailLoading ? 'Đang xác thực...' : 'Xác nhận Đổi Email'}
                     </button>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { ArrowLeft, ShieldCheck, Phone, Video, Info, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
 import MessageItem from './MessageItem';
@@ -7,6 +8,7 @@ import ForwardModal from './ForwardModal';
 import SafetyNumberModal from './SafetyNumberModal';
 import api from '../../services/api';
 import { encryptMessageForRoom, decryptMessage, getDeviceId } from '../../utils/e2ee';
+import useTimedMessage from '../../hooks/useTimedMessage';
 
 // Lấy thông tin người đang chat cùng trong phòng DM
 const getDMPartner = (room, currentUser) => {
@@ -29,6 +31,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   const [forwardTargetMessage, setForwardTargetMessage] = useState(null);
   const [showForward, setShowForward] = useState(false);
   const [showSafetyNumber, setShowSafetyNumber] = useState(false);
+  const [errorMsg, showError] = useTimedMessage();
   const bottomRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const containerRef = useRef(null);
@@ -181,9 +184,9 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       setReplyTo(null);
     } catch (err) {
       console.error('[E2EE] Send error:', err);
-      alert('Không thể mã hóa tin nhắn E2EE');
+      showError('Không thể mã hóa tin nhắn E2EE');
     }
-  }, [emit, roomId, room]);
+  }, [emit, roomId, room, showError]);
 
   const handleTyping = useCallback((isTyping) => {
     emit(isTyping ? 'typing:start' : 'typing:stop', { roomId });
@@ -200,7 +203,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
 
   const handleForwardSend = useCallback(async (targetRoomId, originalMsg) => {
     if (!originalMsg || originalMsg.isDeleted) {
-      alert('Không thể chuyển tiếp tin nhắn đã bị thu hồi.');
+      showError('Không thể chuyển tiếp tin nhắn đã bị thu hồi.');
       return;
     }
 
@@ -226,9 +229,9 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       });
     } catch (err) {
       console.error('[E2EE] Forward error:', err);
-      alert('Không thể mã hóa tin nhắn chuyển tiếp.');
+      showError('Không thể mã hóa tin nhắn chuyển tiếp.');
     }
-  }, [emit]);
+  }, [emit, showError]);
 
   const handleEdit = useCallback(async (messageId, newContent) => {
     try {
@@ -244,9 +247,9 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       });
     } catch (err) {
       console.error('[E2EE] Edit error:', err);
-      alert('Không thể mã hóa nội dung chỉnh sửa tin nhắn.');
+      showError('Không thể mã hóa nội dung chỉnh sửa tin nhắn.');
     }
-  }, [emit, room]);
+  }, [emit, room, showError]);
 
   const loadMore = async () => {
     const nextPage = page + 1;
@@ -258,9 +261,9 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
 
   if (!room) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-white text-gray-500 p-8 select-none">
+      <div className="flex-1 flex flex-col items-center justify-center bg-base-100 text-base-content/60 p-8 select-none">
         <span className="text-6xl mb-4 opacity-30">💬</span>
-        <p className="text-lg font-bold text-gray-800">Chào mừng bạn đến với Chat App!</p>
+        <p className="text-lg font-bold text-base-content">Chào mừng bạn đến với Chat App!</p>
         <p className="text-sm opacity-70 mt-1">Chọn một phòng chat hoặc Bạn bè ở sidebar để bắt đầu trò chuyện.</p>
       </div>
     );
@@ -275,24 +278,31 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   const offlineMembers = !room.isDM ? (room.members?.filter(m => !m.isOnline) || []) : [];
 
   return (
-    <div className="flex-1 flex flex-row h-full overflow-hidden bg-white text-black">
+    <div className="flex-1 flex flex-row h-full overflow-hidden bg-base-100 text-base-content relative">
+      {errorMsg && (
+        <div className="toast toast-top toast-center z-[100]">
+          <div className="alert alert-error text-sm">
+            <span>{errorMsg}</span>
+          </div>
+        </div>
+      )}
       {/* Vùng chat chính (giữa) */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-white relative">
-        
-        {/* Header phòng chat — màu trắng Messenger */}
-        <div className="h-[60px] border-b border-gray-200 px-4 flex items-center justify-between bg-white flex-shrink-0 z-10">
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-base-100 relative">
+
+        {/* Header phòng chat */}
+        <div className="h-[60px] border-b border-base-300 px-4 flex items-center justify-between bg-base-100 flex-shrink-0 z-10">
           <div className="flex items-center gap-3 min-w-0">
             {/* Nút quay lại Bạn bè */}
-            <button 
+            <button
               onClick={onBackToFriends}
-              className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center cursor-pointer transition-colors text-base font-bold text-gray-600"
+              className="btn btn-circle btn-ghost btn-sm bg-base-200"
               title="Quay lại danh sách bạn bè"
             >
-              ←
+              <ArrowLeft className="w-4 h-4" />
             </button>
 
             {/* Avatar Header & Tên */}
-            <div 
+            <div
               className={`flex items-center gap-3 min-w-0 ${room.isDM && dmPartner && onViewProfile ? 'cursor-pointer group' : ''}`}
               onClick={() => {
                 if (room.isDM && dmPartner && onViewProfile) {
@@ -300,34 +310,29 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
                 }
               }}
             >
-              <div className="relative flex-shrink-0">
-                {room.isDM ? (
-                  <div className="w-10 h-10 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-sm overflow-hidden ring-1 ring-gray-100 group-hover:ring-[#0084ff] transition-all">
+              {room.isDM ? (
+                <div className={`avatar ${dmPartnerOnline ? 'avatar-online' : 'avatar-offline'} flex-shrink-0`}>
+                  <div className="w-10 rounded-full ring-1 ring-base-300 group-hover:ring-primary transition-all">
                     {dmPartner?.avatar ? (
-                      <img src={dmPartner.avatar} alt="avatar" className="w-10 h-10 rounded-full object-cover" />
+                      <img src={dmPartner.avatar} alt="avatar" />
                     ) : (
-                      <div className="w-full h-full bg-[#0084ff] flex items-center justify-center text-white">
+                      <div className="w-full h-full bg-primary flex items-center justify-center text-primary-content font-bold">
                         {displayName[0].toUpperCase()}
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#006aff] to-[#00b2ff] text-white flex items-center justify-center font-bold text-base">
-                    💬
-                  </div>
-                )}
-                {room.isDM && (
-                  <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
-                    dmPartnerOnline ? 'bg-[#31a24c]' : 'bg-gray-400'
-                  }`} />
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-primary to-secondary text-primary-content flex items-center justify-center font-bold text-base flex-shrink-0">
+                  💬
+                </div>
+              )}
 
               <div className="flex flex-col leading-tight">
-                <span className="font-bold text-gray-900 truncate text-[15px] group-hover:text-[#0084ff] transition-colors">{displayName}</span>
-                <span className="text-[11px] text-gray-500 font-medium">
-                  {room.isDM 
-                    ? (dmPartnerOnline ? 'Đang hoạt động' : 'Không hoạt động') 
+                <span className="font-bold truncate text-[15px] group-hover:text-primary transition-colors">{displayName}</span>
+                <span className="text-[11px] text-base-content/50 font-medium">
+                  {room.isDM
+                    ? (dmPartnerOnline ? 'Đang hoạt động' : 'Không hoạt động')
                     : `${room.members?.length || 0} thành viên`
                   }
                 </span>
@@ -341,56 +346,52 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
               <>
                 <button
                   onClick={() => setShowSafetyNumber(true)}
-                  className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center cursor-pointer transition-colors text-base"
+                  className="btn btn-circle btn-ghost btn-sm"
                   title="Mã An Toàn E2EE (Safety Number)"
                 >
-                  🔐
+                  <ShieldCheck className="w-[18px] h-[18px]" />
                 </button>
 
-                <button 
+                <button
                   onClick={() => onInitiateCall && onInitiateCall(dmPartner._id, 'audio')}
-                  className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center cursor-pointer transition-colors"
+                  className="btn btn-circle btn-ghost btn-sm text-primary"
                   title="Bắt đầu cuộc gọi thoại"
                 >
-                  <svg className="w-5 h-5 text-[#0084ff]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
-                  </svg>
+                  <Phone className="w-[18px] h-[18px]" />
                 </button>
-                <button 
+                <button
                   onClick={() => onInitiateCall(dmPartner, 'video')}
-                  className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-600 transition-colors cursor-pointer active:scale-95"
+                  className="btn btn-circle btn-ghost btn-sm"
                   title="Gọi video"
                 >
-                  <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
+                  <Video className="w-[18px] h-[18px]" />
                 </button>
               </>
             )}
-            
+
             {/* Nút bật/tắt Info Sidebar */}
-            <button 
+            <button
               onClick={() => setShowMembers(!showMembers)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-base cursor-pointer transition-colors ${showMembers ? 'bg-blue-50 text-[#0084ff]' : 'hover:bg-gray-100 text-gray-600'}`}
+              className={`btn btn-circle btn-ghost btn-sm ${showMembers ? 'bg-primary/10 text-primary' : ''}`}
               title="Thông tin cuộc trò chuyện"
             >
-              ℹ️
+              <Info className="w-[18px] h-[18px]" />
             </button>
           </div>
         </div>
 
         {/* Danh sách tin nhắn */}
-        <div 
+        <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto p-4 flex flex-col gap-2.5 hide-scrollbar bg-white"
+          className="flex-1 overflow-y-auto p-4 flex flex-col gap-2.5 hide-scrollbar bg-base-100"
         >
           {hasMore && (
-            <button className="bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors self-center mb-4 text-xs font-semibold py-1.5 px-4 rounded-full shadow-xs cursor-pointer active:scale-95" onClick={loadMore}>
+            <button className="btn btn-sm btn-ghost bg-base-200 self-center mb-4 rounded-full" onClick={loadMore}>
               Xem tin nhắn cũ hơn
             </button>
           )}
-          
+
           <div className="flex flex-col gap-1.5">
             {messages.map((msg) => {
               return (
@@ -408,9 +409,9 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
               );
             })}
           </div>
-          
+
           {typing.length > 0 && (
-            <p className="text-[11px] text-gray-400 italic mt-1 px-4">
+            <p className="text-[11px] text-base-content/40 italic mt-1 px-4">
               💬 {typing.join(', ')} đang nhập...
             </p>
           )}
@@ -420,12 +421,10 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
         {showScrollBottom && (
           <button
             onClick={scrollToBottom}
-            className="absolute bottom-20 right-6 w-10 h-10 rounded-full bg-white hover:bg-gray-50 border border-gray-200 shadow-md flex items-center justify-center text-gray-600 hover:text-[#0084ff] transition-all active:scale-95 cursor-pointer z-20 animate-bounce"
+            className="btn btn-circle btn-sm bg-base-100 border-base-300 shadow-md absolute bottom-20 right-6 text-base-content/60 hover:text-primary z-20 animate-bounce"
             title="Cuộn xuống dưới"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
+            <ChevronDown className="w-5 h-5" />
           </button>
         )}
 
@@ -440,16 +439,16 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
         </div>
       </div>
 
-      {/* Cột 4: Thông tin cuộc trò chuyện bên phải (Messenger Details Sidebar) */}
+      {/* Cột 4: Thông tin cuộc trò chuyện bên phải */}
       {showMembers && (
-        <div className="w-[300px] bg-white flex flex-col border-l border-gray-200 flex-shrink-0">
-          <div className="h-[60px] border-b border-gray-200 px-4 flex items-center bg-white font-bold text-gray-800 select-none flex-shrink-0 text-sm">
+        <div className="w-[300px] bg-base-100 flex flex-col border-l border-base-300 flex-shrink-0">
+          <div className="h-[60px] border-b border-base-300 px-4 flex items-center font-bold select-none flex-shrink-0 text-sm">
             Thông tin chi tiết
           </div>
 
           <div className="flex-1 overflow-y-auto hide-scrollbar p-4 flex flex-col items-center gap-6">
             {/* Ảnh đại diện phòng lớn ở cột thông tin */}
-            <div 
+            <div
               className={`flex flex-col items-center gap-2 mt-4 text-center ${room.isDM && dmPartner && onViewProfile ? 'cursor-pointer group' : ''}`}
               onClick={() => {
                 if (room.isDM && dmPartner && onViewProfile) {
@@ -458,84 +457,80 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
               }}
             >
               {room.isDM ? (
-                <div className="w-20 h-20 rounded-full bg-gray-200 text-white flex items-center justify-center font-bold text-3xl overflow-hidden ring-2 ring-gray-100 group-hover:ring-[#0084ff] transition-all">
-                  {dmPartner?.avatar ? (
-                    <img src={dmPartner.avatar} alt="avatar" className="w-20 h-20 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-[#0084ff] flex items-center justify-center text-white">
-                      {displayName[0].toUpperCase()}
-                    </div>
-                  )}
+                <div className="avatar">
+                  <div className="w-20 rounded-full ring-2 ring-base-300 group-hover:ring-primary transition-all">
+                    {dmPartner?.avatar ? (
+                      <img src={dmPartner.avatar} alt="avatar" />
+                    ) : (
+                      <div className="w-full h-full bg-primary flex items-center justify-center text-primary-content font-bold text-3xl">
+                        {displayName[0].toUpperCase()}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
-                <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-[#006aff] to-[#00b2ff] text-white flex items-center justify-center font-bold text-4xl">
+                <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-primary to-secondary text-primary-content flex items-center justify-center font-bold text-4xl">
                   💬
                 </div>
               )}
-              <span className="font-bold text-lg text-gray-900 mt-2 group-hover:text-[#0084ff] transition-colors">{displayName}</span>
+              <span className="font-bold text-lg mt-2 group-hover:text-primary transition-colors">{displayName}</span>
               {room.isDM && (
-                <span className="text-xs text-gray-500">
-                  {dmPartnerOnline ? 'Đang hoạt động trên Messenger' : 'Không hoạt động'}
+                <span className="text-xs text-base-content/50">
+                  {dmPartnerOnline ? 'Đang hoạt động' : 'Không hoạt động'}
                 </span>
               )}
             </div>
 
-            <div className="w-full h-[1px] bg-gray-100" />
+            <div className="divider my-0 w-full" />
 
             {/* Mục thành viên (Nếu không phải DM) */}
             {!room.isDM && (
               <div className="w-full flex flex-col gap-4">
-                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider px-1">
+                <h4 className="text-xs font-bold text-base-content/50 uppercase tracking-wider px-1">
                   Thành viên nhóm ({room.members?.length || 0})
                 </h4>
 
-                <div className="flex flex-col gap-2 max-h-64 overflow-y-auto hide-scrollbar">
+                <ul className="menu menu-sm p-0 gap-1 max-h-64 overflow-y-auto hide-scrollbar flex-nowrap">
                   {/* Trực tuyến */}
                   {onlineMembers.map(m => (
-                    <div 
-                      key={m._id} 
-                      onClick={() => onViewProfile && onViewProfile(m._id)}
-                      className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors group"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="relative">
-                          <div className="w-8 h-8 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-sm overflow-hidden">
+                    <li key={m._id}>
+                      <a onClick={() => onViewProfile && onViewProfile(m._id)} className="group">
+                        <div className="avatar avatar-online">
+                          <div className="w-8 rounded-full">
                             {m.avatar ? (
-                              <img src={m.avatar} alt="avatar" className="w-8 h-8 rounded-full object-cover" />
+                              <img src={m.avatar} alt="avatar" />
                             ) : (
-                              <span>{(m.nickname || m.username)[0].toUpperCase()}</span>
+                              <div className="w-full h-full bg-primary flex items-center justify-center text-primary-content font-bold text-sm">
+                                {(m.nickname || m.username)[0].toUpperCase()}
+                              </div>
                             )}
                           </div>
-                          <div className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white bg-[#31a24c]" />
                         </div>
-                        <span className="text-sm font-semibold truncate text-gray-800 group-hover:text-[#0084ff] transition-colors">{m.nickname || m.username}</span>
-                      </div>
-                    </div>
+                        <span className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{m.nickname || m.username}</span>
+                      </a>
+                    </li>
                   ))}
 
                   {/* Ngoại tuyến */}
                   {offlineMembers.map(m => (
-                    <div 
-                      key={m._id} 
-                      onClick={() => onViewProfile && onViewProfile(m._id)}
-                      className="flex items-center justify-between p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors opacity-70 hover:opacity-100 group"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="relative">
-                          <div className="w-8 h-8 rounded-full bg-gray-300 text-gray-600 flex items-center justify-center font-bold text-sm overflow-hidden">
+                    <li key={m._id} className="opacity-70 hover:opacity-100">
+                      <a onClick={() => onViewProfile && onViewProfile(m._id)} className="group">
+                        <div className="avatar avatar-offline">
+                          <div className="w-8 rounded-full">
                             {m.avatar ? (
-                              <img src={m.avatar} alt="avatar" className="w-8 h-8 rounded-full object-cover filter grayscale" />
+                              <img src={m.avatar} alt="avatar" className="grayscale" />
                             ) : (
-                              <span>{(m.nickname || m.username)[0].toUpperCase()}</span>
+                              <div className="w-full h-full bg-base-300 flex items-center justify-center text-base-content font-bold text-sm">
+                                {(m.nickname || m.username)[0].toUpperCase()}
+                              </div>
                             )}
                           </div>
-                          <div className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white bg-gray-400" />
                         </div>
-                        <span className="text-sm font-semibold truncate text-gray-700 group-hover:text-[#0084ff] transition-colors">{m.nickname || m.username}</span>
-                      </div>
-                    </div>
+                        <span className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{m.nickname || m.username}</span>
+                      </a>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             )}
           </div>

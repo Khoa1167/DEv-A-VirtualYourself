@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
+import useTimedMessage from '../../hooks/useTimedMessage';
 import ReportModal from './ReportModal';
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢'];
@@ -16,10 +17,11 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
   const [showReportModal, setShowReportModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [toastMsg, showToast] = useTimedMessage(2500);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
-      .then(() => alert('Đã sao chép tin nhắn vào bộ nhớ tạm'))
+      .then(() => showToast('Đã sao chép tin nhắn vào bộ nhớ tạm'))
       .catch(err => console.error('Không thể sao chép:', err));
     setShowActions(false);
   };
@@ -71,9 +73,9 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
     const target = document.getElementById(`msg-${message.replyTo._id}`);
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      target.classList.add('bg-blue-50/50', 'ring-2', 'ring-blue-100', 'p-1');
+      target.classList.add('bg-primary/10', 'ring-2', 'ring-primary/20', 'p-1');
       setTimeout(() => {
-        target.classList.remove('bg-blue-50/50', 'ring-2', 'ring-blue-100', 'p-1');
+        target.classList.remove('bg-primary/10', 'ring-2', 'ring-primary/20', 'p-1');
       }, 1500);
     }
   };
@@ -84,9 +86,9 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
       <div id={`msg-${message._id}`} className={`flex flex-col mb-2 px-2 transition-all duration-300 rounded-lg ${isOwn ? 'items-end' : 'items-start'}`}>
         <div className="flex items-end gap-2">
           {!isOwn && (
-            <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0" />
+            <div className="w-8 h-8 rounded-full bg-base-200 flex-shrink-0" />
           )}
-          <div className={`px-3.5 py-2 text-xs italic rounded-2xl border text-gray-400 bg-gray-50 border-gray-100 ${
+          <div className={`chat-bubble chat-bubble-neutral text-xs italic text-base-content/40 bg-base-200 border border-base-300 ${
             isOwn ? 'rounded-br-[4px]' : 'rounded-bl-[4px]'
           }`}>
             Tin nhắn đã bị thu hồi
@@ -101,9 +103,9 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
       
       {/* Nickname phía trên tin nhắn (nếu là phòng chat nhóm và không phải tin nhắn của mình) */}
       {!isOwn && !isDM && (
-        <span 
+        <span
           onClick={() => onViewProfile && onViewProfile(message.sender._id)}
-          className="text-[10px] text-gray-500 font-semibold mb-0.5 ml-10 hover:underline cursor-pointer hover:text-[#0084ff] transition-colors"
+          className="text-[10px] text-base-content/50 font-semibold mb-0.5 ml-10 hover:underline cursor-pointer hover:text-primary transition-colors"
         >
           {senderName}
         </span>
@@ -111,42 +113,44 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
 
       {/* Discord-style Reply Preview */}
       {message.replyTo && (
-        <div 
+        <div
           onClick={handleScrollToOriginal}
-          className={`flex items-center text-[11px] text-gray-500 mb-1 select-none cursor-pointer hover:opacity-85 transition-opacity ${
+          className={`flex items-center text-[11px] text-base-content/50 mb-1 select-none cursor-pointer hover:opacity-85 transition-opacity ${
             isOwn ? 'flex-row-reverse mr-2' : 'ml-4'
           }`}
           title="Cuộn tới tin nhắn gốc"
         >
           {/* Connector Line */}
-          <div className={`w-6 h-3 border-t-2 border-gray-200 flex-shrink-0 ${
-            isOwn 
-              ? 'border-r-2 rounded-tr-md ml-1.5' 
+          <div className={`w-6 h-3 border-t-2 border-base-300 flex-shrink-0 ${
+            isOwn
+              ? 'border-r-2 rounded-tr-md ml-1.5'
               : 'border-l-2 rounded-tl-md mr-1.5'
           }`} style={{ marginTop: '6px' }} />
-          
+
           {/* Mini Avatar */}
-          <div className="w-4 h-4 rounded-full overflow-hidden flex-shrink-0 bg-gray-200 mr-1.5">
-            {message.replyTo.sender?.avatar ? (
-              <img src={message.replyTo.sender.avatar} alt="avatar" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-gray-400 text-[8px] text-white flex items-center justify-center font-bold">
-                {(message.replyTo.sender?.nickname || message.replyTo.sender?.username || 'U')[0].toUpperCase()}
-              </div>
-            )}
+          <div className="avatar">
+            <div className="w-4 rounded-full bg-base-300 mr-1.5">
+              {message.replyTo.sender?.avatar ? (
+                <img src={message.replyTo.sender.avatar} alt="avatar" />
+              ) : (
+                <div className="w-full h-full bg-neutral text-[8px] text-neutral-content flex items-center justify-center font-bold">
+                  {(message.replyTo.sender?.nickname || message.replyTo.sender?.username || 'U')[0].toUpperCase()}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Replying target name */}
-          <span className="font-bold text-gray-600 mr-1.5 hover:underline">
+          <span className="font-bold text-base-content/70 mr-1.5 hover:underline">
             @{message.replyTo.sender?.nickname || message.replyTo.sender?.username}
           </span>
 
           {/* Snippet of content (optimized và ẩn Cloudinary URL) */}
-          <span className="text-gray-400 truncate max-w-[200px] italic">
+          <span className="text-base-content/40 truncate max-w-[200px] italic">
             {message.replyTo.isDeleted ? 'Tin nhắn đã bị thu hồi' : (
-              message.replyTo.type === 'audio' ? 'Tin nhắn thoại' : 
-              message.replyTo.type === 'image' ? '[Hình ảnh]' : 
-              message.replyTo.type === 'file' ? `[Tệp: ${message.replyTo.fileName || 'Tài liệu'}]` : 
+              message.replyTo.type === 'audio' ? 'Tin nhắn thoại' :
+              message.replyTo.type === 'image' ? '[Hình ảnh]' :
+              message.replyTo.type === 'file' ? `[Tệp: ${message.replyTo.fileName || 'Tài liệu'}]` :
               message.replyTo.content
             )}
           </span>
@@ -155,11 +159,11 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
 
       {/* Nhãn chuyển tiếp tin nhắn */}
       {message.forwardedFrom && (
-        <div className={`flex items-center text-[10px] text-gray-400 gap-1 mb-0.5 select-none ${isOwn ? 'mr-2' : 'ml-10'}`}>
+        <div className={`flex items-center text-[10px] text-base-content/40 gap-1 mb-0.5 select-none ${isOwn ? 'mr-2' : 'ml-10'}`}>
           <span>↪</span>
           <span>
             Chuyển tiếp từ{' '}
-            <span className="font-semibold text-gray-500">
+            <span className="font-semibold text-base-content/60">
               {message.forwardedFrom.sender?.nickname || message.forwardedFrom.sender?.username || 'Người dùng'}
             </span>
           </span>
@@ -171,15 +175,17 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
         
         {/* Avatar người gửi (Chỉ hiện cho người khác) */}
         {!isOwn && (
-          <div 
-            className="relative flex-shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+          <div
+            className="avatar flex-shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
             onClick={() => onViewProfile && onViewProfile(message.sender._id)}
           >
-            <div className="w-8 h-8 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-xs overflow-hidden ring-1 ring-gray-100" title={`Xem profile của ${senderName}`}>
+            <div className="w-8 rounded-full ring-1 ring-base-300" title={`Xem profile của ${senderName}`}>
               {message.sender.avatar ? (
-                <img src={message.sender.avatar} alt="avatar" className="w-8 h-8 rounded-full object-cover" />
+                <img src={message.sender.avatar} alt="avatar" />
               ) : (
-                <span>{senderName[0].toUpperCase()}</span>
+                <div className="w-full h-full bg-primary text-primary-content flex items-center justify-center font-bold text-xs">
+                  <span>{senderName[0].toUpperCase()}</span>
+                </div>
               )}
             </div>
           </div>
@@ -187,54 +193,54 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
 
         {/* Bong bóng tin nhắn */}
         <div className="relative flex flex-col max-w-full">
-          <div 
+          <div
             className={`text-[14px] leading-relaxed whitespace-pre-wrap break-words shadow-2xs ${
               message.type === 'audio' || message.type === 'image' || message.type === 'file'
                 ? 'bg-transparent shadow-none'
-                : isOwn 
-                  ? 'bg-gradient-to-r from-[#006aff] to-[#00b2ff] text-white rounded-2xl rounded-br-[4px] px-3.5 py-2' 
-                  : 'bg-[#e4e6eb] text-black rounded-2xl rounded-bl-[4px] px-3.5 py-2'
+                : isOwn
+                  ? 'chat-bubble chat-bubble-primary rounded-2xl rounded-br-[4px] px-3.5 py-2'
+                  : 'chat-bubble bg-base-200 text-base-content rounded-2xl rounded-bl-[4px] px-3.5 py-2'
             }`}
             title={format(new Date(message.createdAt), 'HH:mm')}
           >
             {message.type === 'audio' ? (
               <div className="relative inline-block">
-                <audio 
-                  src={message.content} 
-                  controls 
-                  className={`w-[360px] max-w-full rounded-lg p-1 ${isOwn ? 'bg-blue-50' : 'bg-gray-100'} focus:outline-none`} 
+                <audio
+                  src={message.content}
+                  controls
+                  className={`w-[360px] max-w-full rounded-lg p-1 ${isOwn ? 'bg-primary/10' : 'bg-base-200'} focus:outline-none`}
                 />
               </div>
             ) : message.type === 'image' ? (
               <div className="relative inline-block">
-                <img 
-                  src={message.content} 
-                  alt="Hình ảnh đính kèm" 
-                  className="max-w-[240px] max-h-[240px] rounded-2xl cursor-pointer object-cover border border-gray-100 shadow-xs hover:opacity-90 transition-opacity" 
-                  onClick={() => window.open(message.content, '_blank')} 
+                <img
+                  src={message.content}
+                  alt="Hình ảnh đính kèm"
+                  className="max-w-[240px] max-h-[240px] rounded-2xl cursor-pointer object-cover border border-base-300 shadow-xs hover:opacity-90 transition-opacity"
+                  onClick={() => window.open(message.content, '_blank')}
                 />
               </div>
             ) : message.type === 'file' ? (
               <div className={`flex items-center gap-3 rounded-2xl p-3.5 max-w-[240px] border shadow-3xs ${
-                isOwn 
-                  ? 'bg-[#0084ff] border-[#007be6] text-white' 
-                  : 'bg-[#f0f2f5] border-gray-200 text-black'
+                isOwn
+                  ? 'bg-primary border-primary/70 text-primary-content'
+                  : 'bg-base-200 border-base-300 text-base-content'
               }`}>
                 <span className="text-2xl select-none">📄</span>
                 <div className="flex flex-col min-w-0">
-                  <a 
-                    href={message.content} 
-                    download 
-                    target="_blank" 
-                    rel="noreferrer" 
+                  <a
+                    href={message.content}
+                    download
+                    target="_blank"
+                    rel="noreferrer"
                     className={`text-[13px] font-semibold truncate hover:underline cursor-pointer ${
-                      isOwn ? 'text-white' : 'text-[#0084ff]'
+                      isOwn ? 'text-primary-content' : 'text-primary'
                     }`}
                     title={message.fileName || 'Tải file'}
                   >
                     {message.fileName || 'Tệp đính kèm'}
                   </a>
-                  <span className={`text-[10px] font-medium mt-0.5 ${isOwn ? 'text-blue-100' : 'text-gray-400'} flex items-center gap-1`}>
+                  <span className={`text-[10px] font-medium mt-0.5 ${isOwn ? 'text-primary-content/70' : 'text-base-content/40'} flex items-center gap-1`}>
                     Tệp đính kèm
                   </span>
                 </div>
@@ -245,19 +251,19 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
                   <textarea
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    className="w-full text-xs p-2 border border-gray-300 rounded-lg bg-white text-black outline-none resize-none focus:border-blue-500 font-sans"
+                    className="textarea textarea-bordered textarea-xs w-full bg-base-100 text-base-content resize-none"
                     rows={2}
                   />
                   <div className="flex justify-end gap-1.5">
-                    <button 
+                    <button
                       onClick={() => setIsEditing(false)}
-                      className="text-[9px] px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-md font-bold cursor-pointer transition-colors"
+                      className="btn btn-xs btn-ghost bg-base-200"
                     >
                       Hủy
                     </button>
-                    <button 
+                    <button
                       onClick={handleSaveEdit}
-                      className="text-[9px] px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-md font-bold cursor-pointer transition-colors"
+                      className="btn btn-xs btn-primary text-white"
                     >
                       Lưu
                     </button>
@@ -295,24 +301,24 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
                 return (
                   <div key={r.emoji} className="relative group/react inline-block">
                     <button
-                      className={`inline-flex items-center gap-1 border text-[10px] px-2 py-0.5 rounded-full cursor-pointer select-none active:scale-95 transition-all ${
-                        hasReacted 
-                          ? 'bg-blue-50 border-blue-200 text-[#0084ff]' 
-                          : 'bg-gray-100 border-transparent text-gray-600 hover:bg-gray-200'
+                      className={`badge gap-1 cursor-pointer select-none active:scale-95 transition-all ${
+                        hasReacted
+                          ? 'badge-primary badge-outline'
+                          : 'badge-ghost bg-base-200'
                       }`}
                       onClick={() => onReact(message._id, r.emoji)}
                     >
                       <span>{r.emoji}</span>
                       <span className="font-bold opacity-85">{r.users.length}</span>
                     </button>
-                    
+
                     {/* Tooltip hiển thị người bày tỏ cảm xúc */}
                     {reactorNames && (
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/react:flex flex-col items-center z-30">
-                        <div className="bg-gray-900/95 text-white text-[9px] font-semibold px-2 py-1 rounded-md shadow-md whitespace-nowrap leading-tight text-center">
+                        <div className="bg-neutral text-neutral-content text-[9px] font-semibold px-2 py-1 rounded-md shadow-md whitespace-nowrap leading-tight text-center">
                           {reactorNames}
                         </div>
-                        <div className="w-1.5 h-1.5 bg-gray-900/95 rotate-45 -mt-0.5" />
+                        <div className="w-1.5 h-1.5 bg-neutral rotate-45 -mt-0.5" />
                       </div>
                     )}
                   </div>
@@ -322,33 +328,34 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
           )}
         </div>
 
-        {/* Hover Menu thao tác kiểu Messenger (Emoji + Trả lời + Menu 3 chấm ⋮) */}
-        <div 
-          className={`absolute top-1/2 -translate-y-1/2 flex gap-0.5 bg-white border border-gray-200 shadow-sm p-1 rounded-full z-20 transition-all ${
+        {/* Hover Menu thao tác (Emoji + Trả lời + Menu 3 chấm ⋮) */}
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 flex gap-0.5 bg-base-100 border border-base-300 shadow-sm p-1 rounded-full z-20 transition-all ${
             isOwn ? 'left-[-170px]' : 'right-[-170px]'
           } ${showActions ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 scale-95 pointer-events-none group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto group-hover/msg:scale-100'}`}
         >
           {EMOJIS.map(emoji => (
-            <button 
-              key={emoji} 
+            <button
+              key={emoji}
               onClick={() => onReact(message._id, emoji)}
-              className="w-5 h-5 flex items-center justify-center text-xs hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
+              className="btn btn-circle btn-ghost btn-xs text-xs"
             >
               {emoji}
             </button>
           ))}
-          <button 
+          <button
             onClick={() => onReply(message)}
-            className="w-8 text-[9px] font-bold text-gray-500 hover:text-blue-500 rounded-full cursor-pointer transition-colors"
+            className="btn btn-ghost btn-xs rounded-full text-base-content/60 hover:text-primary"
           >
             Reply
           </button>
-          
+
           {/* Nút 3 chấm mở rộng hành động */}
-          <div className="relative">
-            <button 
+          <div className="dropdown dropdown-top">
+            <button
+              tabIndex={0}
               onClick={handleToggleActions}
-              className="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-full cursor-pointer transition-colors text-xs font-bold"
+              className="btn btn-circle btn-ghost btn-xs text-xs font-bold"
               title="Thao tác khác"
             >
               ⋮
@@ -356,54 +363,61 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
 
             {/* Dropdown Menu hành động */}
             {showActions && (
-              <div className={`absolute bottom-full mb-2 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[100px] z-30 ${
+              <ul className={`dropdown-content menu menu-sm bg-base-100 border border-base-300 rounded-lg shadow-lg py-1 min-w-[110px] z-30 ${
                 isOwn ? 'right-0' : 'left-0'
               }`}>
                 {message.type === 'text' && (
-                  <button
-                    onClick={handleCopy}
-                    className="w-full text-left px-3 py-1.5 text-[10px] text-gray-700 hover:bg-gray-100 font-semibold cursor-pointer"
-                  >
-                    Sao chép
-                  </button>
+                  <li>
+                    <button onClick={handleCopy} className="text-[11px] font-semibold">
+                      Sao chép
+                    </button>
+                  </li>
                 )}
-                <button
-                  onClick={handleForward}
-                  className="w-full text-left px-3 py-1.5 text-[10px] text-gray-700 hover:bg-gray-100 font-semibold cursor-pointer"
-                >
-                  Chuyển tiếp
-                </button>
-                {isOwn && message.type === 'text' && (
-                  <button
-                    onClick={handleStartEdit}
-                    className="w-full text-left px-3 py-1.5 text-[10px] text-gray-700 hover:bg-gray-100 font-semibold cursor-pointer"
-                  >
-                    Chỉnh sửa
+                <li>
+                  <button onClick={handleForward} className="text-[11px] font-semibold">
+                    Chuyển tiếp
                   </button>
+                </li>
+                {isOwn && message.type === 'text' && (
+                  <li>
+                    <button onClick={handleStartEdit} className="text-[11px] font-semibold">
+                      Chỉnh sửa
+                    </button>
+                  </li>
                 )}
                 {!isOwn && (
-                  <button
-                    onClick={() => {
-                      setShowActions(false);
-                      setShowReportModal(true);
-                    }}
-                    className="w-full text-left px-3 py-1.5 text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
-                  >
-                    🚩 Báo cáo
-                  </button>
+                  <li>
+                    <button
+                      onClick={() => {
+                        setShowActions(false);
+                        setShowReportModal(true);
+                      }}
+                      className="text-[11px] font-bold text-error"
+                    >
+                      🚩 Báo cáo
+                    </button>
+                  </li>
                 )}
-              </div>
+              </ul>
             )}
           </div>
         </div>
 
       </div>
 
+      {toastMsg && (
+        <div className="toast toast-bottom toast-center z-[100]">
+          <div className="alert alert-success text-xs py-2">
+            <span>{toastMsg}</span>
+          </div>
+        </div>
+      )}
+
       {showReportModal && (
         <ReportModal
           message={message}
           onClose={() => setShowReportModal(false)}
-          onSuccess={(msg) => alert(msg)}
+          onSuccess={(msg) => showToast(msg)}
         />
       )}
     </div>

@@ -144,9 +144,9 @@ export default function CallModal({
         onTouchStart={handleTouchStart}
         style={{ left: position.x, top: position.y }}
         className={`fixed z-50 select-none cursor-move transition-transform active:scale-95 duration-75 ${
-          callType === 'video' 
-            ? 'w-[140px] h-[190px] rounded-2xl border-2 border-blue-500 bg-black shadow-2xl overflow-hidden flex flex-col'
-            : 'w-[90px] h-[90px] rounded-full border-2 border-blue-500 bg-[#1e1e1e] shadow-2xl flex flex-col items-center justify-center'
+          callType === 'video'
+            ? 'w-[140px] h-[190px] rounded-2xl border-2 border-primary bg-black shadow-2xl overflow-hidden flex flex-col'
+            : 'w-[90px] h-[90px] rounded-full border-2 border-primary bg-neutral shadow-2xl flex flex-col items-center justify-center'
         }`}
       >
         {callType === 'video' ? (
@@ -184,7 +184,7 @@ export default function CallModal({
                 {/* Nút phóng to */}
                 <button
                   onClick={() => setIsMinimized(false)}
-                  className="w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white cursor-pointer active:scale-90"
+                  className="btn btn-circle btn-xs bg-black/60 hover:bg-black/80 border-none text-white"
                   title="Phóng to"
                 >
                   <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -201,7 +201,7 @@ export default function CallModal({
               {/* Nút Gác máy nhanh */}
               <button
                 onClick={onEndCall}
-                className="w-8 h-8 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center cursor-pointer mx-auto shadow-md active:scale-90"
+                className="btn btn-circle btn-sm btn-error mx-auto shadow-md"
                 title="Gác máy"
               >
                 <svg className="w-4 h-4 text-white rotate-[135deg]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -214,16 +214,18 @@ export default function CallModal({
           // Khung nổi cho gọi thoại (Hình tròn)
           <div className="w-full h-full relative group flex items-center justify-center">
             {/* Nhịp thở nhấp nháy cho audio call */}
-            <div className="absolute inset-0 rounded-full animate-ping bg-blue-500/10 z-0" />
-            
-            <div className="w-14 h-14 rounded-full overflow-hidden bg-blue-600 border border-blue-400 z-10">
-              {partnerAvatar ? (
-                <img src={partnerAvatar} alt="avatar" className="w-full h-full object-cover" />
-              ) : (
-                <span className="w-full h-full flex items-center justify-center text-sm font-bold text-white">
-                  {partnerName[0].toUpperCase()}
-                </span>
-              )}
+            <div className="absolute inset-0 rounded-full animate-ping bg-primary/10 z-0" />
+
+            <div className="avatar z-10">
+              <div className="w-14 rounded-full bg-primary border border-primary/60">
+                {partnerAvatar ? (
+                  <img src={partnerAvatar} alt="avatar" />
+                ) : (
+                  <span className="w-full h-full flex items-center justify-center text-sm font-bold text-primary-content">
+                    {partnerName[0].toUpperCase()}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Video hidden để WebRTC audio tracks hoạt động */}
@@ -235,7 +237,7 @@ export default function CallModal({
               <div className="flex gap-2">
                 <button
                   onClick={() => setIsMinimized(false)}
-                  className="w-6 h-6 rounded-full bg-black/80 hover:bg-black flex items-center justify-center text-white cursor-pointer"
+                  className="btn btn-circle btn-xs bg-black/80 hover:bg-black border-none text-white"
                   title="Phóng to"
                 >
                   <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -247,7 +249,7 @@ export default function CallModal({
                 </button>
                 <button
                   onClick={onEndCall}
-                  className="w-6 h-6 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center cursor-pointer"
+                  className="btn btn-circle btn-xs btn-error"
                   title="Gác máy"
                 >
                   <svg className="w-3.5 h-3.5 text-white rotate-[135deg]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -266,13 +268,13 @@ export default function CallModal({
   // LỰA CHỌN 2: KHI HIỂN THỊ TOÀN MÀN HÌNH (FULL MODAL OVERLAY)
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 transition-all duration-300">
-      <div className="bg-[#1e1e1e] text-white w-full max-w-sm h-full max-h-[600px] md:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative border border-gray-800">
-        
+      <div className="bg-neutral text-neutral-content w-full max-w-sm h-full max-h-[600px] md:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative border border-white/10">
+
         {/* Nút thu nhỏ ở chế độ Full screen (Chỉ hiện khi cuộc gọi đã kết nối active) */}
         {callState === 'active' && (
           <button
             onClick={() => setIsMinimized(true)}
-            className="absolute top-4 left-4 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white cursor-pointer z-40 active:scale-90 select-none transition-colors"
+            className="btn btn-circle btn-sm bg-black/40 hover:bg-black/60 border-none text-white absolute top-4 left-4 z-40"
             title="Thu nhỏ"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -287,20 +289,22 @@ export default function CallModal({
         {/* Ringing Out (Đang gọi đi) */}
         {callState === 'ringing-out' && (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-pulse">
-            <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold overflow-hidden shadow-xl ring-4 ring-blue-500/20 mb-6">
-              {partnerAvatar ? (
-                <img src={partnerAvatar} alt="avatar" className="w-full h-full object-cover" />
-              ) : (
-                partnerName[0].toUpperCase()
-              )}
+            <div className="avatar mb-6">
+              <div className="w-24 rounded-full bg-primary text-3xl font-bold shadow-xl ring-4 ring-primary/20">
+                {partnerAvatar ? (
+                  <img src={partnerAvatar} alt="avatar" />
+                ) : (
+                  <span className="w-full h-full flex items-center justify-center text-primary-content">{partnerName[0].toUpperCase()}</span>
+                )}
+              </div>
             </div>
             <h2 className="text-xl font-bold mb-2">{partnerName}</h2>
-            <p className="text-sm text-gray-400 mb-16">Đang đổ chuông...</p>
-            
+            <p className="text-sm text-neutral-content/50 mb-16">Đang đổ chuông...</p>
+
             {/* Hủy cuộc gọi */}
             <button
               onClick={onCancel}
-              className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer"
+              className="btn btn-circle btn-lg btn-error shadow-lg"
               title="Hủy cuộc gọi"
             >
               <svg className="w-7 h-7 text-white rotate-[135deg]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -313,15 +317,17 @@ export default function CallModal({
         {/* Ringing In (Cuộc gọi đến) */}
         {callState === 'ringing-in' && (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-            <div className="w-24 h-24 rounded-full bg-[#0084ff] flex items-center justify-center text-white text-3xl font-bold overflow-hidden shadow-xl ring-4 ring-[#0084ff]/20 mb-6 animate-bounce">
-              {partnerAvatar ? (
-                <img src={partnerAvatar} alt="avatar" className="w-full h-full object-cover" />
-              ) : (
-                partnerName[0].toUpperCase()
-              )}
+            <div className="avatar mb-6">
+              <div className="w-24 rounded-full bg-primary text-3xl font-bold shadow-xl ring-4 ring-primary/20 animate-bounce">
+                {partnerAvatar ? (
+                  <img src={partnerAvatar} alt="avatar" />
+                ) : (
+                  <span className="w-full h-full flex items-center justify-center text-primary-content">{partnerName[0].toUpperCase()}</span>
+                )}
+              </div>
             </div>
             <h2 className="text-xl font-bold mb-2">{partnerName}</h2>
-            <p className="text-sm text-blue-400 mb-16 font-semibold animate-pulse">
+            <p className="text-sm text-primary mb-16 font-semibold animate-pulse">
               {callType === 'video' ? 'Cuộc gọi video đến...' : 'Cuộc gọi thoại đến...'}
             </p>
 
@@ -329,7 +335,7 @@ export default function CallModal({
               {/* Nút từ chối */}
               <button
                 onClick={onDecline}
-                className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer"
+                className="btn btn-circle btn-lg btn-error shadow-lg"
                 title="Từ chối"
               >
                 <svg className="w-7 h-7 text-white rotate-[135deg]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -340,7 +346,7 @@ export default function CallModal({
               {/* Nút chấp nhận */}
               <button
                 onClick={onAccept}
-                className="w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer"
+                className="btn btn-circle btn-lg btn-success shadow-lg"
                 title="Trả lời"
               >
                 <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -389,17 +395,19 @@ export default function CallModal({
               </div>
             ) : (
               // Audio Call (Khung giao diện thoại)
-              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-[#181818]">
-                <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold overflow-hidden shadow-xl mb-4 ring-2 ring-blue-500/20">
-                  {partnerAvatar ? (
-                    <img src={partnerAvatar} alt="avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    partnerName[0].toUpperCase()
-                  )}
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-neutral">
+                <div className="avatar mb-4">
+                  <div className="w-24 rounded-full bg-primary text-3xl font-bold shadow-xl ring-2 ring-primary/20">
+                    {partnerAvatar ? (
+                      <img src={partnerAvatar} alt="avatar" />
+                    ) : (
+                      <span className="w-full h-full flex items-center justify-center text-primary-content">{partnerName[0].toUpperCase()}</span>
+                    )}
+                  </div>
                 </div>
                 <h2 className="text-xl font-bold mb-2">{partnerName}</h2>
-                <p className="text-sm text-green-500 font-semibold animate-pulse">Cuộc gọi thoại đang kết nối...</p>
-                
+                <p className="text-sm text-success font-semibold animate-pulse">Cuộc gọi thoại đang kết nối...</p>
+
                 {/* Ẩn video element cho audio call để vẫn nhận tracks */}
                 <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
                 <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />
@@ -411,11 +419,7 @@ export default function CallModal({
               {/* Tắt/Mở Mic */}
               <button
                 onClick={toggleMute}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer border ${
-                  isMuted 
-                    ? 'bg-red-500 border-red-500 text-white' 
-                    : 'bg-white/10 hover:bg-white/20 border-white/10 text-white'
-                }`}
+                className={`btn btn-circle ${isMuted ? 'btn-error' : 'bg-white/10 hover:bg-white/20 border-white/10 text-white'}`}
                 title={isMuted ? 'Bật Mic' : 'Tắt Mic'}
               >
                 {isMuted ? '🎙️❌' : '🎙️'}
@@ -425,11 +429,7 @@ export default function CallModal({
               {callType === 'video' && (
                 <button
                   onClick={toggleCamera}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer border ${
-                    isVideoOff 
-                      ? 'bg-red-500 border-red-500 text-white' 
-                      : 'bg-white/10 hover:bg-white/20 border-white/10 text-white'
-                  }`}
+                  className={`btn btn-circle ${isVideoOff ? 'btn-error' : 'bg-white/10 hover:bg-white/20 border-white/10 text-white'}`}
                   title={isVideoOff ? 'Bật Camera' : 'Tắt Camera'}
                 >
                   {isVideoOff ? '📹❌' : '📹'}
@@ -439,7 +439,7 @@ export default function CallModal({
               {/* Gác máy */}
               <button
                 onClick={onEndCall}
-                className="w-11 h-11 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center shadow-lg active:scale-95 transition-colors cursor-pointer"
+                className="btn btn-circle btn-error shadow-lg"
                 title="Gác máy"
               >
                 <svg className="w-5 h-5 text-white rotate-[135deg]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">

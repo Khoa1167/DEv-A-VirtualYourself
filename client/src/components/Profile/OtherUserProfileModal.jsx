@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
+import useTimedMessage from '../../hooks/useTimedMessage';
 import { formatDistanceToNow, format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 
@@ -14,6 +15,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
   const [alias, setAlias] = useState('');
   const [isEditingAlias, setIsEditingAlias] = useState(false);
   const [aliasLoading, setAliasLoading] = useState(false);
+  const [actionError, showActionError] = useTimedMessage();
 
   // Load thông tin profile
   const fetchProfile = async () => {
@@ -37,7 +39,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
       setProfile(prev => ({ ...prev, customAlias: data.customAlias }));
       setIsEditingAlias(false);
     } catch (err) {
-      alert(err.response?.data?.message || 'Không thể lưu biệt danh');
+      showActionError(err.response?.data?.message || 'Không thể lưu biệt danh');
     } finally {
       setAliasLoading(false);
     }
@@ -80,7 +82,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
       await api.post(`/friends/request/${userId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'pending_sent' }));
     } catch (err) {
-      alert(err.response?.data?.message || 'Gửi lời mời thất bại');
+      showActionError(err.response?.data?.message || 'Gửi lời mời thất bại');
     } finally {
       setActionLoading(false);
     }
@@ -93,7 +95,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
       await api.delete(`/friends/cancel/${userId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'none', friendshipId: null }));
     } catch (err) {
-      alert(err.response?.data?.message || 'Hủy lời mời thất bại');
+      showActionError(err.response?.data?.message || 'Hủy lời mời thất bại');
     } finally {
       setActionLoading(false);
     }
@@ -107,7 +109,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
       await api.put(`/friends/accept/${profile.friendshipId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'accepted' }));
     } catch (err) {
-      alert(err.response?.data?.message || 'Chấp nhận thất bại');
+      showActionError(err.response?.data?.message || 'Chấp nhận thất bại');
     } finally {
       setActionLoading(false);
     }
@@ -121,7 +123,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
       await api.put(`/friends/reject/${profile.friendshipId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'none', friendshipId: null }));
     } catch (err) {
-      alert(err.response?.data?.message || 'Từ chối thất bại');
+      showActionError(err.response?.data?.message || 'Từ chối thất bại');
     } finally {
       setActionLoading(false);
     }
@@ -135,7 +137,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
       await api.delete(`/friends/unfriend/${userId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'none', friendshipId: null }));
     } catch (err) {
-      alert(err.response?.data?.message || 'Hủy kết bạn thất bại');
+      showActionError(err.response?.data?.message || 'Hủy kết bạn thất bại');
     } finally {
       setActionLoading(false);
     }
@@ -150,26 +152,34 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
         onClose();
       }
     } catch (err) {
-      alert('Chưa thể mở đoạn chat hoặc chưa có phòng chat riêng.');
+      showActionError('Chưa thể mở đoạn chat hoặc chưa có phòng chat riêng.');
     }
   };
 
   if (!userId) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in"
+    <div
+      className="modal modal-open bg-black/50 backdrop-blur-sm z-50"
       onClick={onClose}
     >
-      <div 
-        className="card w-full max-w-md bg-white text-black border border-gray-200 relative overflow-hidden shadow-2xl rounded-2xl font-sans"
+      <div
+        className="modal-box p-0 max-w-md bg-base-100 border border-base-300 shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
+        {actionError && (
+          <div className="toast toast-top toast-center z-[110]">
+            <div className="alert alert-error text-sm">
+              <span>{actionError}</span>
+            </div>
+          </div>
+        )}
+
         {/* Header Bar */}
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-          <h2 className="text-base font-bold text-gray-800">Trang cá nhân</h2>
-          <button 
-            className="hover:bg-gray-200/80 text-gray-500 hover:text-black text-xs cursor-pointer bg-gray-100 px-3 py-1.5 rounded-full font-semibold transition-colors"
+        <div className="p-4 border-b border-base-300 flex items-center justify-between bg-base-200/50">
+          <h2 className="text-base font-bold">Trang cá nhân</h2>
+          <button
+            className="btn btn-sm btn-ghost bg-base-200 rounded-full"
             onClick={onClose}
           >
             ✕ Đóng
@@ -177,14 +187,14 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
         </div>
 
         {/* Nội dung Modal */}
-        <div className="overflow-y-auto max-h-[80vh] p-6 hide-scrollbar flex flex-col gap-6 bg-white">
+        <div className="overflow-y-auto max-h-[80vh] p-6 hide-scrollbar flex flex-col gap-6 bg-base-100">
           {loading ? (
-            <div className="py-12 flex flex-col items-center justify-center gap-3 text-gray-400">
-              <span className="animate-spin text-2xl">⏳</span>
+            <div className="py-12 flex flex-col items-center justify-center gap-3 text-base-content/40">
+              <span className="loading loading-spinner loading-md"></span>
               <span className="text-sm font-medium">Đang tải thông tin...</span>
             </div>
           ) : error ? (
-            <div className="py-8 text-center text-red-500 text-sm font-semibold">
+            <div className="py-8 text-center text-error text-sm font-semibold">
               ⚠️ {error}
             </div>
           ) : profile ? (
@@ -192,32 +202,25 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
               {/* Profile Hero Section */}
               <div className="flex flex-col items-center text-center gap-2">
                 {/* Cover Banner */}
-                <div className="relative w-full h-32 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 overflow-hidden shadow-xs">
+                <div className="relative w-full h-32 rounded-xl bg-gradient-to-r from-primary to-secondary overflow-hidden shadow-xs">
                   {profile.user.cover ? (
                     <img src={profile.user.cover} alt="cover" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-r from-blue-500 to-indigo-600 opacity-90 flex items-center justify-center text-white/30 text-xs font-semibold">
+                    <div className="w-full h-full bg-gradient-to-r from-primary to-secondary opacity-90 flex items-center justify-center text-primary-content/30 text-xs font-semibold">
                       Chưa có ảnh bìa
                     </div>
                   )}
                 </div>
 
                 {/* Avatar with overlap */}
-                <div className="relative -mt-12">
-                  <div className="w-24 h-24 rounded-full bg-[#0084ff] text-white flex items-center justify-center font-bold text-3xl shadow-lg ring-4 ring-white overflow-hidden">
+                <div className={`avatar -mt-12 ${profile.user.isOnline ? 'avatar-online' : 'avatar-offline'}`}>
+                  <div className="w-24 rounded-full bg-primary text-primary-content font-bold text-3xl shadow-lg ring-4 ring-base-100">
                     {profile.user.avatar ? (
-                      <img src={profile.user.avatar} alt="avatar" className="object-cover w-full h-full" />
+                      <img src={profile.user.avatar} alt="avatar" />
                     ) : (
-                      <span>{(profile.user.nickname || profile.user.username)[0].toUpperCase()}</span>
+                      <span className="w-full h-full flex items-center justify-center">{(profile.user.nickname || profile.user.username)[0].toUpperCase()}</span>
                     )}
                   </div>
-                  {/* Status Indicator */}
-                  <div 
-                    className={`absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-white ${
-                      profile.user.isOnline ? 'bg-green-500 ring-2 ring-green-100' : 'bg-gray-400'
-                    }`}
-                    title={profile.user.isOnline ? 'Đang hoạt động' : 'Ngoại tuyến'}
-                  />
                 </div>
 
                 <div className="mt-1 flex flex-col items-center">
@@ -226,7 +229,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
                     <div className="flex items-center gap-1.5 mt-1">
                       <input
                         type="text"
-                        className="bg-white border border-gray-300 rounded-lg px-2.5 py-1 text-sm font-semibold text-gray-800 outline-none focus:border-[#0084ff]"
+                        className="input input-bordered input-sm font-semibold"
                         placeholder="Đặt biệt danh..."
                         value={alias}
                         onChange={e => setAlias(e.target.value)}
@@ -235,26 +238,26 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
                       <button
                         onClick={handleSaveAlias}
                         disabled={aliasLoading}
-                        className="bg-[#0084ff] hover:bg-[#0073de] text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
+                        className="btn btn-primary btn-sm text-white"
                       >
                         {aliasLoading ? 'Lưu...' : 'Lưu'}
                       </button>
                       <button
                         onClick={() => { setIsEditingAlias(false); setAlias(profile.customAlias || ''); }}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold px-2 py-1.5 rounded-lg transition-all cursor-pointer"
+                        className="btn btn-ghost btn-sm bg-base-200"
                       >
                         ✕
                       </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-xl font-bold text-gray-900 tracking-tight">
+                      <h3 className="text-xl font-bold tracking-tight">
                         {profile.customAlias || profile.user.nickname || profile.user.username}
                       </h3>
                       {profile.friendshipStatus === 'accepted' && (
                         <button
                           onClick={() => setIsEditingAlias(true)}
-                          className="text-gray-400 hover:text-[#0084ff] p-1 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer flex items-center justify-center"
+                          className="btn btn-circle btn-ghost btn-xs text-base-content/40 hover:text-primary"
                           title="Đặt biệt danh riêng cho bạn bè"
                         >
                           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -268,32 +271,32 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
 
                   {/* Hiển thị tên thật/gốc nếu có biệt danh riêng */}
                   {profile.customAlias && (
-                    <p className="text-xs text-gray-500 font-medium mt-0.5">
-                      Tên thật: <span className="font-semibold text-gray-700">{profile.user.nickname || profile.user.username}</span> (@{profile.user.username})
+                    <p className="text-xs text-base-content/50 font-medium mt-0.5">
+                      Tên thật: <span className="font-semibold text-base-content/70">{profile.user.nickname || profile.user.username}</span> (@{profile.user.username})
                     </p>
                   )}
 
                   {!profile.customAlias && (
-                    <p className="text-xs text-gray-500 font-medium mt-0.5">
+                    <p className="text-xs text-base-content/50 font-medium mt-0.5">
                       @{profile.user.username}
                     </p>
                   )}
 
                   {profile.user.bio && (
-                    <p className="text-xs italic text-gray-600 bg-gray-50/80 px-3.5 py-1.5 rounded-xl border border-gray-100 max-w-xs mt-2 leading-relaxed">
+                    <p className="text-xs italic text-base-content/70 bg-base-200/80 px-3.5 py-1.5 rounded-xl border border-base-300 max-w-xs mt-2 leading-relaxed">
                       "{profile.user.bio}"
                     </p>
                   )}
 
                   <p className="text-xs font-semibold mt-1.5">
                     {profile.user.isOnline ? (
-                      <span className="text-green-600 flex items-center justify-center gap-1">
+                      <span className="text-success flex items-center justify-center gap-1">
                         ● Đang hoạt động
                       </span>
                     ) : (
-                      <span className="text-gray-400">
-                        {profile.user.lastSeen 
-                          ? `Hoạt động ${formatDistanceToNow(new Date(profile.user.lastSeen), { addSuffix: true, locale: vi })}` 
+                      <span className="text-base-content/40">
+                        {profile.user.lastSeen
+                          ? `Hoạt động ${formatDistanceToNow(new Date(profile.user.lastSeen), { addSuffix: true, locale: vi })}`
                           : 'Ngoại tuyến'}
                       </span>
                     )}
@@ -302,18 +305,18 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
               </div>
 
               {/* Action Buttons Bar */}
-              <div className="flex items-center justify-center gap-2 pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-center gap-2 pt-2 border-t border-base-300">
                 {profile.friendshipStatus === 'self' && (
-                  <div className="text-xs text-gray-400 bg-gray-50 px-4 py-2 rounded-xl font-medium w-full text-center">
+                  <div className="text-xs text-base-content/40 bg-base-200 px-4 py-2 rounded-xl font-medium w-full text-center">
                     Đây là trang cá nhân của bạn
                   </div>
                 )}
 
                 {profile.friendshipStatus === 'accepted' && (
                   <>
-                    <button 
+                    <button
                       onClick={handleOpenDM}
-                      className="flex-1 bg-[#0084ff] hover:bg-[#0073de] text-white font-bold text-xs py-2.5 px-3 rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      className="btn btn-primary btn-sm flex-1 text-white gap-1.5"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
@@ -322,18 +325,18 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
                     </button>
                     {onInitiateCall && (
                       <>
-                        <button 
+                        <button
                           onClick={() => { onInitiateCall(profile.user, 'audio'); onClose(); }}
-                          className="bg-blue-50 hover:bg-blue-100 text-[#0084ff] font-bold text-xs py-2.5 px-3 rounded-xl transition-all border border-blue-100 flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+                          className="btn btn-sm bg-primary/10 hover:bg-primary/20 text-primary border-primary/20"
                           title="Gọi thoại"
                         >
                           <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                           </svg>
                         </button>
-                        <button 
+                        <button
                           onClick={() => { onInitiateCall(profile.user, 'video'); onClose(); }}
-                          className="bg-green-600 hover:bg-green-700 text-white font-bold text-xs py-2.5 px-3 rounded-xl transition-all shadow-xs flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+                          className="btn btn-sm btn-success text-white"
                           title="Gọi video"
                         >
                           <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -342,10 +345,10 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
                         </button>
                       </>
                     )}
-                    <button 
+                    <button
                       onClick={handleUnfriend}
                       disabled={actionLoading}
-                      className="bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs py-2.5 px-3 rounded-xl transition-all border border-red-100 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      className="btn btn-sm bg-error/10 hover:bg-error/20 text-error border-error/20 gap-1.5"
                       title="Hủy kết bạn"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -361,10 +364,10 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
 
                 {profile.friendshipStatus === 'none' && (
                   <>
-                    <button 
+                    <button
                       onClick={handleSendRequest}
                       disabled={actionLoading}
-                      className="flex-1 bg-[#0084ff] hover:bg-[#0073de] text-white font-bold text-xs py-2.5 px-4 rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      className="btn btn-primary btn-sm flex-1 text-white gap-1.5"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -374,9 +377,9 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
                       </svg>
                       <span>{actionLoading ? 'Đang gửi...' : 'Kết bạn'}</span>
                     </button>
-                    <button 
+                    <button
                       onClick={handleOpenDM}
-                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      className="btn btn-sm btn-ghost bg-base-200 gap-1.5"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
@@ -387,10 +390,10 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
                 )}
 
                 {profile.friendshipStatus === 'pending_sent' && (
-                  <button 
+                  <button
                     onClick={handleCancelRequest}
                     disabled={actionLoading}
-                    className="flex-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-bold text-xs py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                    className="btn btn-sm flex-1 bg-warning/10 hover:bg-warning/20 text-warning border-warning/30 gap-1.5"
                   >
                     <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="10" />
@@ -402,20 +405,20 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
 
                 {profile.friendshipStatus === 'pending_received' && (
                   <>
-                    <button 
+                    <button
                       onClick={handleAcceptRequest}
                       disabled={actionLoading}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                      className="btn btn-success btn-sm flex-1 text-white gap-1.5"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                       <span>Chấp nhận lời mời</span>
                     </button>
-                    <button 
+                    <button
                       onClick={handleRejectRequest}
                       disabled={actionLoading}
-                      className="bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs py-2.5 px-3 rounded-xl transition-all border border-red-100 flex items-center justify-center gap-1 cursor-pointer active:scale-95"
+                      className="btn btn-sm bg-error/10 hover:bg-error/20 text-error border-error/20"
                     >
                       <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="18" y1="6" x2="6" y2="18" />
@@ -428,36 +431,36 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
               </div>
 
               {/* Info Details Section */}
-              <div className="bg-gray-50/80 border border-gray-100 rounded-xl p-4 flex flex-col gap-3">
-                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Thông tin cá nhân</h4>
-                
+              <div className="bg-base-200/80 border border-base-300 rounded-xl p-4 flex flex-col gap-3">
+                <h4 className="text-xs font-bold text-base-content/40 uppercase tracking-wider">Thông tin cá nhân</h4>
+
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Email:</span>
-                  <span className="font-semibold text-gray-800">{profile.user.email || 'Chưa cập nhật'}</span>
+                  <span className="text-base-content/50 font-medium">Email:</span>
+                  <span className="font-semibold">{profile.user.email || 'Chưa cập nhật'}</span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Số điện thoại:</span>
-                  <span className="font-semibold text-gray-800">{profile.user.phone || 'Chưa cập nhật'}</span>
+                  <span className="text-base-content/50 font-medium">Số điện thoại:</span>
+                  <span className="font-semibold">{profile.user.phone || 'Chưa cập nhật'}</span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Giới tính:</span>
-                  <span className="font-semibold text-gray-800">
+                  <span className="text-base-content/50 font-medium">Giới tính:</span>
+                  <span className="font-semibold">
                     {profile.user.gender === 'male' ? 'Nam' : profile.user.gender === 'female' ? 'Nữ' : profile.user.gender === 'other' ? 'Khác' : 'Chưa cập nhật'}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Ngày sinh:</span>
-                  <span className="font-semibold text-gray-800">
+                  <span className="text-base-content/50 font-medium">Ngày sinh:</span>
+                  <span className="font-semibold">
                     {profile.user.dateOfBirth ? format(new Date(profile.user.dateOfBirth), 'dd/MM/yyyy') : 'Chưa cập nhật'}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Tham gia từ:</span>
-                  <span className="font-semibold text-gray-800">
+                  <span className="text-base-content/50 font-medium">Tham gia từ:</span>
+                  <span className="font-semibold">
                     {profile.user.createdAt ? format(new Date(profile.user.createdAt), 'dd/MM/yyyy') : 'N/A'}
                   </span>
                 </div>
@@ -465,47 +468,50 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
 
               {/* Mutual Groups Section */}
               <div className="flex flex-col gap-2">
-                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
+                <h4 className="text-xs font-bold text-base-content/40 uppercase tracking-wider flex items-center justify-between">
                   <span>Nhóm chung</span>
-                  <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                  <span className="badge badge-neutral badge-sm">
                     {profile.mutualRooms?.length || 0}
                   </span>
                 </h4>
 
                 {profile.mutualRooms && profile.mutualRooms.length > 0 ? (
-                  <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto hide-scrollbar">
+                  <ul className="menu menu-sm p-0 gap-1 max-h-36 overflow-y-auto hide-scrollbar flex-nowrap">
                     {profile.mutualRooms.map(room => (
-                      <div 
-                        key={room._id}
-                        onClick={() => {
-                          if (onSelectRoom) {
-                            onSelectRoom(room);
-                            onClose();
-                          }
-                        }}
-                        className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 border border-transparent hover:border-gray-100 transition-all cursor-pointer group"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-[#0084ff] font-bold text-xs flex items-center justify-center flex-shrink-0">
-                          {room.avatar ? (
-                            <img src={room.avatar} alt="room avatar" className="w-full h-full object-cover rounded-full" />
-                          ) : (
-                            (room.name || 'N')[0].toUpperCase()
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-gray-800 truncate group-hover:text-[#0084ff] transition-colors">
-                            {room.name || 'Nhóm chat'}
-                          </p>
-                          <p className="text-[10px] text-gray-400">
-                            {room.members?.length || 0} thành viên
-                          </p>
-                        </div>
-                        <span className="text-xs text-gray-300 group-hover:text-[#0084ff] transition-colors">➔</span>
-                      </div>
+                      <li key={room._id}>
+                        <a
+                          onClick={() => {
+                            if (onSelectRoom) {
+                              onSelectRoom(room);
+                              onClose();
+                            }
+                          }}
+                          className="group"
+                        >
+                          <div className="avatar placeholder flex-shrink-0">
+                            <div className="w-8 rounded-full bg-primary/10 text-primary font-bold text-xs">
+                              {room.avatar ? (
+                                <img src={room.avatar} alt="room avatar" />
+                              ) : (
+                                <span>{(room.name || 'N')[0].toUpperCase()}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold truncate group-hover:text-primary transition-colors">
+                              {room.name || 'Nhóm chat'}
+                            </p>
+                            <p className="text-[10px] text-base-content/40">
+                              {room.members?.length || 0} thành viên
+                            </p>
+                          </div>
+                          <span className="text-xs text-base-content/30 group-hover:text-primary transition-colors">➔</span>
+                        </a>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 ) : (
-                  <p className="text-xs text-gray-400 italic bg-gray-50/50 p-3 rounded-xl text-center">
+                  <p className="text-xs text-base-content/40 italic bg-base-200/50 p-3 rounded-xl text-center">
                     Không có nhóm chung nào
                   </p>
                 )}

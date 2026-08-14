@@ -1,0 +1,13 @@
+---
+sourceLocationPrefix: E:\chat_server
+baselineLinesOfCode: 3121
+unicodeNewlines: true
+columnKind: utf16
+primaryLanguage: javascript
+creationMetadata:
+  sha: 345d2417edd675a8cfba3fb988ae441cdac8522a
+  cliVersion: 2.26.2
+  creationTime: 2026-08-10T08:16:59.334063900Z
+overlayBaseDatabase: false
+overlayDatabase: false
+finalised: true

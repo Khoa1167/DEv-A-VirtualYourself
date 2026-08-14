@@ -6,6 +6,7 @@ const { decrypt } = require('../utils/crypto');
 const multer = require('multer');
 const { cloudinary } = require('../config/cloudinary');
 const { Readable } = require('stream');
+const sendServerError = require('../utils/sendServerError');
 
 const hasEncryptedKeys = (encryptedKeys) => {
   if (!encryptedKeys) return false;
@@ -55,7 +56,7 @@ router.get('/', protect, async (req, res) => {
       .sort({ updatedAt: -1 });
 
     const decryptedRooms = rooms.map(roomDoc => {
-      const room = roomDoc.toObject();
+      const room = roomDoc.toObject({ flattenMaps: true });
       if (room.lastMessage && room.lastMessage.content && !room.lastMessage.isDeleted && room.lastMessage.encryptedKey && !hasEncryptedKeys(room.lastMessage.encryptedKeys)) {
         room.lastMessage.content = decrypt(
           room.lastMessage.content,
@@ -69,7 +70,7 @@ router.get('/', protect, async (req, res) => {
 
     res.json(decryptedRooms);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -102,7 +103,7 @@ router.post('/', protect, async (req, res) => {
 
     res.status(201).json(room);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -118,7 +119,7 @@ router.get('/all', protect, async (req, res) => {
       .sort({ updatedAt: -1 });
 
     const decryptedRooms = rooms.map(roomDoc => {
-      const room = roomDoc.toObject();
+      const room = roomDoc.toObject({ flattenMaps: true });
       if (room.lastMessage && room.lastMessage.content && !room.lastMessage.isDeleted && room.lastMessage.encryptedKey && !hasEncryptedKeys(room.lastMessage.encryptedKeys)) {
         room.lastMessage.content = decrypt(
           room.lastMessage.content,
@@ -132,7 +133,7 @@ router.get('/all', protect, async (req, res) => {
 
     res.json(decryptedRooms);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -162,19 +163,21 @@ router.get('/:id/messages', protect, async (req, res) => {
 
     // Giải mã tin nhắn và các tin nhắn liên quan trước khi gửi về client
     const decryptedMessages = messages.map(msgDoc => {
-      const msg = msgDoc.toObject();
-      
-      if (!msg.isDeleted && msg.content && msg.encryptedKey && !msg.encryptedKeys?.size) {
+      // flattenMaps: encryptedKeys là Mongoose Map, phải flatten thành plain object
+      // trước khi res.json() (JSON.stringify(Map) trả về "{}", client sẽ không giải mã được)
+      const msg = msgDoc.toObject({ flattenMaps: true });
+
+      if (!msg.isDeleted && msg.content && msg.encryptedKey && !hasEncryptedKeys(msg.encryptedKeys)) {
         msg.content = decrypt(msg.content, msg.iv, msg.tag, msg.encryptedKey);
         msg.isEncryptedAtRest = true;
       }
-      
-      if (msg.replyTo && msg.replyTo.content && !msg.replyTo.isDeleted && msg.replyTo.encryptedKey && !msg.replyTo.encryptedKeys?.size) {
+
+      if (msg.replyTo && msg.replyTo.content && !msg.replyTo.isDeleted && msg.replyTo.encryptedKey && !hasEncryptedKeys(msg.replyTo.encryptedKeys)) {
         msg.replyTo.content = decrypt(msg.replyTo.content, msg.replyTo.iv, msg.replyTo.tag, msg.replyTo.encryptedKey);
         msg.replyTo.isEncryptedAtRest = true;
       }
 
-      if (msg.forwardedFrom && msg.forwardedFrom.content && !msg.forwardedFrom.isDeleted && msg.forwardedFrom.encryptedKey && !msg.forwardedFrom.encryptedKeys?.size) {
+      if (msg.forwardedFrom && msg.forwardedFrom.content && !msg.forwardedFrom.isDeleted && msg.forwardedFrom.encryptedKey && !hasEncryptedKeys(msg.forwardedFrom.encryptedKeys)) {
         msg.forwardedFrom.content = decrypt(msg.forwardedFrom.content, msg.forwardedFrom.iv, msg.forwardedFrom.tag, msg.forwardedFrom.encryptedKey);
         msg.forwardedFrom.isEncryptedAtRest = true;
       }
@@ -184,7 +187,7 @@ router.get('/:id/messages', protect, async (req, res) => {
 
     res.json(decryptedMessages.reverse());
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -207,7 +210,7 @@ router.post('/:id/join', protect, async (req, res) => {
 
     res.json(updatedRoom);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -249,7 +252,7 @@ router.post('/upload-audio', protect, (req, res, next) => {
     const result = await uploadToCloudinary(req.file.buffer);
     res.json({ url: result.secure_url });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -290,7 +293,7 @@ router.post('/upload-image', protect, (req, res, next) => {
     const result = await uploadToCloudinary(req.file.buffer);
     res.json({ url: result.secure_url });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -331,7 +334,7 @@ router.post('/upload-file', protect, (req, res, next) => {
     const result = await uploadToCloudinary(req.file.buffer);
     res.json({ url: result.secure_url });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    sendServerError(res, err);
   }
 });
 

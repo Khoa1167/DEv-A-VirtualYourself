@@ -1,6 +1,39 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+/* Aurora — theme tối navy-tím, bo góc mềm, lấy cảm hứng từ giao diện chat hiện đại */
+[data-theme="aurora"] {
+  color-scheme: dark;
+  --color-base-100: #14121f;
+  --color-base-200: #1c1930;
+  --color-base-300: #2a2545;
+  --color-base-content: #e9e6f5;
+  --color-primary: #7c6ff0;
+  --color-primary-content: #ffffff;
+  --color-secondary: #6c8cf5;
+  --color-secondary-content: #ffffff;
+  --color-accent: #4fd8c4;
+  --color-accent-content: #0b2b26;
+  --color-neutral: #221f38;
+  --color-neutral-content: #cfc9e8;
+  --color-info: #63b3f5;
+  --color-info-content: #062036;
+  --color-success: #4ade80;
+  --color-success-content: #082b14;
+  --color-warning: #fbbf24;
+  --color-warning-content: #2b1c02;
+  --color-error: #f87171;
+  --color-error-content: #2b0808;
+  --radius-selector: 1rem;
+  --radius-field: 0.9rem;
+  --radius-box: 1.25rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
 /* Custom scrollbar for Messenger Light styling */
 ::-webkit-scrollbar {
   width: 6px;

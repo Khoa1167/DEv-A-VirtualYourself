@@ -42,31 +42,31 @@ export default function ReportModal({ message, onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" onClick={onClose}>
-      <div className="card w-full max-w-sm bg-white text-black border border-gray-200 relative overflow-hidden shadow-2xl rounded-2xl p-6 flex flex-col gap-4 font-sans animate-fade-in" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-          <h3 className="text-base font-bold text-gray-900 flex items-center gap-1.5">
+    <div className="modal modal-open bg-black/50 backdrop-blur-sm z-50" onClick={onClose}>
+      <div className="modal-box max-w-sm bg-base-100 border border-base-300 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-base-300 pb-3 mb-4">
+          <h3 className="text-base font-bold flex items-center gap-1.5">
             🚩 Báo cáo tin nhắn vi phạm
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="hover:bg-gray-100 text-gray-500 hover:text-black text-xs cursor-pointer bg-gray-50 px-2.5 py-1 rounded-full font-semibold"
+            className="btn btn-sm btn-circle btn-ghost"
           >
             ✕
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-600 max-h-24 overflow-y-auto">
-            <span className="font-bold text-gray-800">Tin nhắn bị báo cáo: </span>
-            <p className="mt-1 italic font-mono text-gray-700">"{message.decryptedText || message.content}"</p>
+          <div className="bg-base-200 border border-base-300 rounded-lg p-3 text-xs text-base-content/70 max-h-24 overflow-y-auto">
+            <span className="font-bold text-base-content">Tin nhắn bị báo cáo: </span>
+            <p className="mt-1 italic font-mono">"{message.decryptedText || message.content}"</p>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Lý do báo cáo</label>
+          <div className="form-control flex flex-col gap-2">
+            <label className="label-text text-xs font-bold text-base-content/60 uppercase tracking-wider">Lý do báo cáo</label>
             <select
-              className="bg-white border border-gray-200 text-black text-sm rounded-lg py-2 px-3 outline-none focus:border-[#0084ff]"
+              className="select select-bordered select-sm w-full"
               value={reason}
               onChange={e => setReason(e.target.value)}
             >
@@ -79,8 +79,8 @@ export default function ReportModal({ message, onClose, onSuccess }) {
           </div>
 
           {error && (
-            <div className="bg-red-50 text-red-500 border border-red-100 py-2 px-3 text-xs font-semibold rounded-lg">
-              {error}
+            <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
+              <span>{error}</span>
             </div>
           )}
 
@@ -88,14 +88,14 @@ export default function ReportModal({ message, onClose, onSuccess }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-black bg-gray-100 hover:bg-gray-200 rounded-full cursor-pointer"
+              className="btn btn-sm btn-ghost rounded-full"
             >
               Hủy
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-full cursor-pointer shadow-xs disabled:opacity-50"
+              className="btn btn-sm btn-error rounded-full text-white"
             >
               {loading ? 'Đang gửi...' : 'Gửi báo cáo'}
             </button>
