@@ -17,6 +17,7 @@ const userSchema = new mongoose.Schema({
   cover:             { type: String, default: '' },
   isOnline:          { type: Boolean, default: false },
   lastSeen:          { type: Date, default: Date.now },
+  role:              { type: String, enum: ['user', 'admin'], default: 'user' }, // Quản trị toàn hệ thống (duyệt report...) — khác "chủ phòng/admin" cấp nhóm chat
   reportTrustScore:            { type: Number, default: 100, min: 10, max: 100 }, // Điểm tin cậy báo cáo (Sàn tối thiểu: 10)
   reportCooldownAt:            { type: Date, default: null },                   // Cooldown nếu bị phát hiện spam report
   dailyTrustScoreIncrease:     { type: Number, default: 0 },                    // Điểm đã cộng trong ngày (Tối đa +15/ngày)

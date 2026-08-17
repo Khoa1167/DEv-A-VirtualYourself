@@ -72,8 +72,8 @@ export const AuthProvider = ({ children }) => {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = async (username, password) => {
-    const { data } = await api.post('/auth/login', { username, password });
+  const login = async (username, password, turnstileToken) => {
+    const { data } = await api.post('/auth/login', { username, password, turnstileToken });
     sessionStorage.setItem('token', data.token);
     setUser(data.user);
 
@@ -85,7 +85,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Thu hồi token phía server (tăng tokenVersion thiết bị) trước khi xóa local — nếu không,
+    // token cũ (kể cả bản sao bị đánh cắp) vẫn còn hiệu lực trên server tới hạn tự nhiên (7 ngày)
+    try {
+      await api.post('/auth/logout');
+    } catch (err) {
+      console.warn('[Auth] Logout revoke error (vẫn đăng xuất local):', err.message);
+    }
     sessionStorage.removeItem('token');
     setUser(null);
   };

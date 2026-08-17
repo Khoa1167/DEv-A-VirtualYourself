@@ -4,7 +4,7 @@ const Report = require('../models/Report');
 const Message = require('../models/Message');
 const Room = require('../models/Room');
 const User = require('../models/User');
-const { protect } = require('../middleware/auth');
+const { protect, requireAdmin } = require('../middleware/auth');
 const { encryptReportContent } = require('../utils/crypto');
 const sendServerError = require('../utils/sendServerError');
 
@@ -132,7 +132,7 @@ router.post('/', protect, async (req, res) => {
 });
 
 // ─── GET /api/reports — Danh sách báo cáo dành cho Admin ──────────────────────
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, requireAdmin, async (req, res) => {
   try {
     const reports = await Report.find({})
       .populate('reporter', 'username nickname avatar reportTrustScore')
@@ -147,7 +147,7 @@ router.get('/', protect, async (req, res) => {
 });
 
 // ─── POST /api/reports/:id/resolve — Admin xử lý báo cáo ──────────────────────
-router.post('/:id/resolve', protect, async (req, res) => {
+router.post('/:id/resolve', protect, requireAdmin, async (req, res) => {
   try {
     const { status } = req.body; // 'reviewed' hoặc 'dismissed'
     if (!['reviewed', 'dismissed'].includes(status)) {

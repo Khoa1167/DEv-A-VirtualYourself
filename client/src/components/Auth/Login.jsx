@@ -2,12 +2,18 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ForgotPasswordModal from './ForgotPasswordModal';
+import Turnstile from '../common/Turnstile';
+
+const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 export default function Login() {
   const [form, setForm]               = useState({ username: '', password: '' });
   const [error, setError]             = useState('');
   const [loading, setLoading]         = useState(false);
   const [isForgotOpen, setIsForgotOpen] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  // Đổi sau mỗi lần submit để buộc Turnstile render lại — token chỉ dùng được 1 lần
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const { login }                     = useAuth();
   const navigate                      = useNavigate();
 
@@ -16,12 +22,13 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(form.username, form.password);
+      await login(form.username, form.password, turnstileToken);
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.message || 'Đăng nhập thất bại');
     } finally {
       setLoading(false);
+      setTurnstileResetKey(k => k + 1);
     }
   };
 
@@ -74,10 +81,12 @@ export default function Login() {
               />
             </div>
             
+            <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+
             <button
               type="submit"
               className="btn btn-primary w-full mt-2 font-bold shadow-md shadow-primary/25 hover:shadow-lg transition-all duration-200"
-              disabled={loading}
+              disabled={loading || (turnstileEnabled && !turnstileToken)}
             >
               {loading ? (
                 <>

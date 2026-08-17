@@ -1,5 +1,7 @@
 import { format } from 'date-fns';
 import { useState, useEffect } from 'react';
+import { MoreVertical } from 'lucide-react';
+import Toast from '../common/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
 import useTimedMessage from '../../hooks/useTimedMessage';
@@ -192,14 +194,14 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
         )}
 
         {/* Bong bóng tin nhắn */}
-        <div className="relative flex flex-col max-w-full">
+        <div className="relative max-w-full">
           <div
             className={`text-[14px] leading-relaxed whitespace-pre-wrap break-words shadow-2xs ${
               message.type === 'audio' || message.type === 'image' || message.type === 'file'
                 ? 'bg-transparent shadow-none'
                 : isOwn
-                  ? 'chat-bubble chat-bubble-primary rounded-2xl rounded-br-[4px] px-3.5 py-2'
-                  : 'chat-bubble bg-base-200 text-base-content rounded-2xl rounded-bl-[4px] px-3.5 py-2'
+                  ? 'chat-bubble chat-bubble-primary rounded-2xl rounded-br-[4px] px-3.5 py-2 max-w-[min(75vw,26rem)]'
+                  : 'chat-bubble bg-base-200 text-base-content rounded-2xl rounded-bl-[4px] px-3.5 py-2 max-w-[min(75vw,26rem)]'
             }`}
             title={format(new Date(message.createdAt), 'HH:mm')}
           >
@@ -355,10 +357,10 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
             <button
               tabIndex={0}
               onClick={handleToggleActions}
-              className="btn btn-circle btn-ghost btn-xs text-xs font-bold"
+              className="btn btn-circle btn-ghost btn-xs"
               title="Thao tác khác"
             >
-              ⋮
+              <MoreVertical className="w-3.5 h-3.5" />
             </button>
 
             {/* Dropdown Menu hành động */}
@@ -405,13 +407,7 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
 
       </div>
 
-      {toastMsg && (
-        <div className="toast toast-bottom toast-center z-[100]">
-          <div className="alert alert-success text-xs py-2">
-            <span>{toastMsg}</span>
-          </div>
-        </div>
-      )}
+      <Toast message={toastMsg} type="success" position="toast-bottom toast-center" alertClassName="text-xs py-2" />
 
       {showReportModal && (
         <ReportModal

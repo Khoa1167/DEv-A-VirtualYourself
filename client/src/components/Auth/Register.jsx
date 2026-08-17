@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import Turnstile from '../common/Turnstile';
+
+const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 export default function Register() {
   const [step, setStep] = useState(1); // 1: form đăng ký, 2: nhập OTP
   const [form, setForm] = useState({
     username: '', password: '', confirmPassword: '', email: '', phone: ''
   });
+  const [turnstileToken, setTurnstileToken] = useState('');
+  // Đổi key này sau mỗi lần gửi để buộc widget Turnstile render lại (mỗi token chỉ dùng được 1
+  // lần — nếu submit thất bại vì lý do khác (vd trùng username) mà không đổi key, submit lại sẽ
+  // gửi token cũ đã bị Cloudflare tiêu thụ, luôn báo "Xác minh CAPTCHA thất bại" oan.
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [otp, setOtp]               = useState('');
   const [usernameStatus, setUsernameStatus] = useState('');
   const [error, setError]           = useState('');
@@ -82,6 +90,7 @@ export default function Register() {
         password: form.password,
         email:    form.email,
         phone:    form.phone,
+        turnstileToken,
       });
       setStep(2);
       setCountdown(300); // 5 phút
@@ -89,6 +98,7 @@ export default function Register() {
       setError(err.response?.data?.message || 'Gửi OTP thất bại');
     } finally {
       setLoading(false);
+      setTurnstileResetKey(k => k + 1);
     }
   };
 
@@ -106,7 +116,7 @@ export default function Register() {
         otp,
       });
       sessionStorage.setItem('token', data.token);
-      navigate('/set-nickname');
+      navigate('/set-nickname', { state: { password: form.password } });
     } catch (err) {
       setError(err.response?.data?.message || 'Xác thực OTP thất bại');
     } finally {
@@ -125,12 +135,14 @@ export default function Register() {
         password: form.password,
         email:    form.email,
         phone:    form.phone,
+        turnstileToken,
       });
       setCountdown(300);
     } catch (err) {
       setError(err.response?.data?.message || 'Gửi lại OTP thất bại');
     } finally {
       setLoading(false);
+      setTurnstileResetKey(k => k + 1);
     }
   };
 
@@ -232,10 +244,12 @@ export default function Register() {
                 />
               </div>
 
+              <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+
               <button
                 type="submit"
                 className="btn btn-primary w-full mt-4 font-bold shadow-md shadow-primary/25 hover:shadow-lg transition-all duration-200"
-                disabled={loading || usernameStatus !== 'available'}
+                disabled={loading || usernameStatus !== 'available' || (turnstileEnabled && !turnstileToken)}
               >
                 {loading ? (
                   <>
@@ -319,6 +333,12 @@ export default function Register() {
             </button>
           </form>
 
+          {countdown === 0 && (
+            <div className="mb-3">
+              <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+            </div>
+          )}
+
           <div className="flex justify-between items-center mt-6 text-sm">
             <button
               onClick={() => { setStep(1); setError(''); setOtp(''); }}
@@ -328,7 +348,7 @@ export default function Register() {
             </button>
             <button
               onClick={handleResendOTP}
-              disabled={loading || countdown > 0}
+              disabled={loading || countdown > 0 || (turnstileEnabled && !turnstileToken)}
               className={`btn btn-sm font-semibold ${countdown > 0 ? 'btn-ghost text-base-content/30' : 'btn-ghost text-primary'}`}
             >
               Gửi lại OTP

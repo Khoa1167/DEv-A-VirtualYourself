@@ -1,8 +1,8 @@
 const router      = require('express').Router();
-const jwt         = require('jsonwebtoken');
 const bcrypt      = require('bcryptjs');
 const mongoose    = require('mongoose');
 const User          = require('../models/User');
+const Room          = require('../models/Room');
 const PendingUser   = require('../models/PendingUser');
 const PasswordReset = require('../models/PasswordReset');
 const EmailChange   = require('../models/EmailChange');
@@ -15,6 +15,9 @@ const {
 } = require('../config/mailer');
 const { uploadAvatar, uploadCover, deleteCloudinaryImage } = require('../config/cloudinary');
 const sendServerError = require('../utils/sendServerError');
+const { checkLock, recordFailure, clearFailures } = require('../utils/rateLimiter');
+const { verifyTurnstile } = require('../utils/turnstile');
+const { signJwt, verifyJwt } = require('../utils/jwtKeys');
 
 const crypto = require('crypto');
 
@@ -28,11 +31,11 @@ const isValidPhone = (value) => phoneRegex.test(value);
 
 // Bootstrap token (hạn 15m, chưa đăng ký device)
 const genBootstrapToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+  signJwt({ id }, { expiresIn: '15m' });
 
 // Device token (hạn 7d, gắn deviceId & tokenVersion per-device)
 const genDeviceToken = (id, deviceId, tokenVersion) =>
-  jwt.sign({ id, deviceId, tokenVersion }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  signJwt({ id, deviceId, tokenVersion }, { expiresIn: '7d' });
 
 const genToken = genBootstrapToken;
 
@@ -44,12 +47,38 @@ const generateOTP = () =>
 const hashOTP = (otp) =>
   crypto.createHash('sha256').update(otp).digest('hex');
 
+// Chống spam OTP đốt hạn ngạch email (Brevo free tier 300/ngày) — dùng chung cho mọi route gửi
+// OTP qua email (send-otp đăng ký, forgot-password) — 3 lớp: theo IP + theo email đích (chặn kịp
+// thời 1 nguồn/1 nạn nhân, map riêng từng route) và ngân sách toàn hệ thống/ngày dùng CHUNG 1 bộ
+// đếm (chặn botnet rải nhiều IP/email khác nhau ở bất kỳ route nào, vốn 2 lớp trên không chặn nổi
+// — nếu để mỗi route tự có ngân sách riêng thì cộng dồn lại vẫn có thể vượt hạn 300/ngày của Brevo).
+const sendOtpIpMap = new Map();
+const sendOtpEmailMap = new Map();
+const forgotPasswordIpMap = new Map();
+const forgotPasswordEmailMap = new Map();
+let dailyOtpBudget = { date: '', count: 0 };
+const DAILY_OTP_BUDGET_MAX = 200; // chừa dư cho đổi email cũng dùng chung quota Brevo
+
+const checkDailyOtpBudget = () => {
+  const today = new Date().toISOString().split('T')[0];
+  if (dailyOtpBudget.date !== today) {
+    dailyOtpBudget = { date: today, count: 0 };
+  }
+  return dailyOtpBudget.count < DAILY_OTP_BUDGET_MAX;
+};
+
 // ─── POST /api/auth/send-otp ───────────────────────────────────────────────
 router.post('/send-otp', async (req, res) => {
   try {
-    const { username, password, email, phone } = req.body;
+    const { username, password, email, phone, turnstileToken } = req.body;
     const normalizedEmail = normalizeEmail(email);
     const normalizedPhone = normalizePhone(phone || '');
+
+    // Chặn bot trước cả rate-limit theo IP/email bên dưới (rate-limit chỉ giới hạn tốc độ,
+    // không phân biệt được người thật hay script tự động)
+    if (!(await verifyTurnstile(turnstileToken, req.ip))) {
+      return res.status(400).json({ message: 'Xác minh CAPTCHA thất bại, vui lòng thử lại' });
+    }
 
     // Validate cơ bản
     if (typeof username !== 'string' || typeof password !== 'string' || !normalizedEmail)
@@ -62,6 +91,19 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ message: 'Email không hợp lệ' });
     if (phone && !isValidPhone(normalizedPhone))
       return res.status(400).json({ message: 'Số điện thoại không hợp lệ' });
+
+    // Chống spam: tối đa 5 lần gửi OTP/15 phút theo IP, 3 lần theo email đích
+    const ipLock = checkLock(sendOtpIpMap, req.ip);
+    if (ipLock.locked) {
+      return res.status(429).json({ message: `Bạn đã yêu cầu OTP quá nhiều lần. Thử lại sau ${ipLock.waitMinutes} phút.` });
+    }
+    const emailLock = checkLock(sendOtpEmailMap, normalizedEmail);
+    if (emailLock.locked) {
+      return res.status(429).json({ message: `Email này đã yêu cầu OTP quá nhiều lần. Thử lại sau ${emailLock.waitMinutes} phút.` });
+    }
+    if (!checkDailyOtpBudget()) {
+      return res.status(503).json({ message: 'Hệ thống tạm ngừng gửi email OTP hôm nay, vui lòng thử lại vào ngày mai.' });
+    }
 
     // Kiểm tra username/email đã tồn tại chưa
     const usernameExists = await User.findOne({ username });
@@ -88,6 +130,10 @@ router.post('/send-otp', async (req, res) => {
     // Gửi email OTP
     await sendOTPEmail(normalizedEmail, otp);
     if (process.env.NODE_ENV !== 'production') console.log(`[DEBUG] OTP for ${normalizedEmail}: ${otp}`);
+
+    recordFailure(sendOtpIpMap, req.ip);
+    recordFailure(sendOtpEmailMap, normalizedEmail, { maxAttempts: 3, lockMinutes: 15 });
+    dailyOtpBudget.count += 1;
 
     res.json({ message: 'OTP đã được gửi tới email của bạn' });
   } catch (err) {
@@ -222,28 +268,26 @@ const loginFailedAttemptsMap = new Map();
 // ─── POST /api/auth/login ─────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, turnstileToken } = req.body;
     if (typeof username !== 'string' || typeof password !== 'string')
       return res.status(400).json({ message: 'Tên tài khoản hoặc mật khẩu không hợp lệ' });
 
-    const now = Date.now();
-    const failEntry = loginFailedAttemptsMap.get(username) || { count: 0, lockUntil: 0 };
-    if (now < failEntry.lockUntil) {
-      const waitMins = Math.ceil((failEntry.lockUntil - now) / 60000);
-      return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng nhập do nhập sai mật khẩu quá nhiều lần. Thử lại sau ${waitMins} phút.` });
+    // Chặn bot/credential-stuffing trước cả rate-limit theo username bên dưới
+    if (!(await verifyTurnstile(turnstileToken, req.ip))) {
+      return res.status(400).json({ message: 'Xác minh CAPTCHA thất bại, vui lòng thử lại' });
+    }
+
+    const lock = checkLock(loginFailedAttemptsMap, username);
+    if (lock.locked) {
+      return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng nhập do nhập sai mật khẩu quá nhiều lần. Thử lại sau ${lock.waitMinutes} phút.` });
     }
 
     const user = await User.findOne({ username });
     if (!user || !(await user.comparePassword(password))) {
-      failEntry.count += 1;
-      if (failEntry.count >= 5) {
-        failEntry.lockUntil = now + 15 * 60 * 1000;
-        failEntry.count = 0;
-      }
-      loginFailedAttemptsMap.set(username, failEntry);
+      recordFailure(loginFailedAttemptsMap, username);
       return res.status(401).json({ message: 'Sai tên tài khoản hoặc mật khẩu' });
     }
-    loginFailedAttemptsMap.delete(username);
+    clearFailures(loginFailedAttemptsMap, username);
 
     res.json({ token: genToken(user._id), user });
   } catch (err) {
@@ -558,13 +602,26 @@ router.delete('/cover', protect, async (req, res) => {
 // ─── POST /api/auth/forgot-password ─────────────────────────────────────────
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, turnstileToken } = req.body;
     if (!email)
       return res.status(400).json({ message: 'Vui lòng nhập email' });
+
+    // Chặn bot trước cả rate-limit theo IP/email bên dưới
+    if (!(await verifyTurnstile(turnstileToken, req.ip))) {
+      return res.status(400).json({ message: 'Xác minh CAPTCHA thất bại, vui lòng thử lại' });
+    }
 
     const lowerEmail = normalizeEmail(email);
     if (!isValidEmail(lowerEmail))
       return res.status(400).json({ message: 'Email không hợp lệ' });
+
+    // Chống spam: tối đa 5 lần yêu cầu/15 phút theo IP — chặn trước khi chạm DB
+    const ipLock = checkLock(forgotPasswordIpMap, req.ip);
+    if (ipLock.locked) {
+      return res.status(429).json({ message: `Bạn đã yêu cầu quá nhiều lần. Thử lại sau ${ipLock.waitMinutes} phút.` });
+    }
+    recordFailure(forgotPasswordIpMap, req.ip);
+
     const user = await User.findOne({ email: lowerEmail });
 
     // Trả về thông báo chung để chống lộ thông tin người dùng (User Enumeration Protection)
@@ -585,6 +642,16 @@ router.post('/forgot-password', async (req, res) => {
           message: `Vui lòng chờ ${Math.ceil(60 - secondsSinceLastRequest)} giây trước khi gửi lại mã`
         });
       }
+    }
+
+    // Thêm trần 3 lần/15 phút theo email đích (cooldown 60s ở trên chỉ chặn dồn dập sát nhau,
+    // vẫn lọt nếu request đúng cách nhau >60s liên tục) + ngân sách chung toàn hệ thống/ngày
+    const emailLock = checkLock(forgotPasswordEmailMap, lowerEmail);
+    if (emailLock.locked) {
+      return res.status(429).json({ message: `Email này đã yêu cầu quá nhiều lần. Thử lại sau ${emailLock.waitMinutes} phút.` });
+    }
+    if (!checkDailyOtpBudget()) {
+      return res.status(503).json({ message: 'Hệ thống tạm ngừng gửi email OTP hôm nay, vui lòng thử lại vào ngày mai.' });
     }
 
     const otp       = generateOTP();
@@ -611,6 +678,8 @@ router.post('/forgot-password', async (req, res) => {
     } catch (mailErr) {
       console.error('Lỗi dịch vụ gửi mail SMTP:', mailErr.message);
     }
+    recordFailure(forgotPasswordEmailMap, lowerEmail, { maxAttempts: 3, lockMinutes: 15 });
+    dailyOtpBudget.count += 1;
 
     res.json(genericResponse);
   } catch (err) {
@@ -651,9 +720,8 @@ router.post('/verify-reset-otp', async (req, res) => {
       return res.status(400).json({ message: `Mã OTP không chính xác, còn ${remaining} lần thử` });
     }
 
-    const resetToken = jwt.sign(
+    const resetToken = signJwt(
       { email: lowerEmail, purpose: 'password_reset' },
-      process.env.JWT_SECRET,
       { expiresIn: '10m' }
     );
 
@@ -690,7 +758,7 @@ router.post('/reset-password', async (req, res) => {
 
     let decoded;
     try {
-      decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+      decoded = verifyJwt(resetToken);
     } catch {
       return res.status(400).json({ message: 'Phiên làm việc đã hết hạn, vui lòng thực hiện lại từ đầu' });
     }
@@ -739,9 +807,12 @@ const triggerDebouncedKeyChanged = (req, userId) => {
   if (debouncedKeyChangedTimers.has(uIdStr)) {
     clearTimeout(debouncedKeyChangedTimers.get(uIdStr));
   }
-  const timer = setTimeout(() => {
+  const timer = setTimeout(async () => {
     debouncedKeyChangedTimers.delete(uIdStr);
-    io.emit('key:changed', { userId: uIdStr, timestamp: Date.now() });
+    // Bảo mật: chỉ báo cho người CÙNG PHÒNG với user này biết — io.emit() cũ phát cho TOÀN
+    // SERVER, lộ metadata "user X vừa đổi/thêm/gỡ thiết bị" cho cả người lạ không liên quan.
+    const rooms = await Room.find({ members: userId }).select('_id');
+    rooms.forEach(r => io.to(r._id.toString()).emit('key:changed', { userId: uIdStr, timestamp: Date.now() }));
   }, 30000);
   debouncedKeyChangedTimers.set(uIdStr, timer);
 };
@@ -758,25 +829,19 @@ router.put('/devices', protect, async (req, res) => {
     const now = Date.now();
 
     // 1. Password Brute-Force Rate Limiter (Max 5 sai / 15m)
-    const failEntry = failedPasswordMap.get(userId) || { count: 0, lockUntil: 0 };
-    if (now < failEntry.lockUntil) {
-      const waitMins = Math.ceil((failEntry.lockUntil - now) / 60000);
-      return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng ký thiết bị do nhập sai mật khẩu quá 5 lần. Thử lại sau ${waitMins} phút.` });
+    const lock = checkLock(failedPasswordMap, userId);
+    if (lock.locked) {
+      return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng ký thiết bị do nhập sai mật khẩu quá 5 lần. Thử lại sau ${lock.waitMinutes} phút.` });
     }
 
     // req.user không có field password (bị protect middleware loại bỏ), phải fetch riêng để so khớp
     const userWithPassword = await User.findById(req.user._id);
     const isMatch = await userWithPassword.comparePassword(currentPassword);
     if (!isMatch) {
-      failEntry.count += 1;
-      if (failEntry.count >= 5) {
-        failEntry.lockUntil = now + 15 * 60 * 1000;
-        failEntry.count = 0;
-      }
-      failedPasswordMap.set(userId, failEntry);
+      recordFailure(failedPasswordMap, userId);
       return res.status(401).json({ message: 'Mật khẩu xác nhận không chính xác' });
     }
-    failedPasswordMap.delete(userId);
+    clearFailures(failedPasswordMap, userId);
 
     // Xử lý 3 nhánh bằng Transaction (kèm fallback nếu không có replica set)
     let finalShouldEmit = false;
@@ -963,6 +1028,27 @@ router.get('/devices', protect, async (req, res) => {
     const includeRevoked = req.query.includeRevoked === 'true';
     const devices = req.user.devices.filter(d => includeRevoked || !d.isRevoked);
     res.json(devices);
+  } catch (err) {
+    sendServerError(res, err);
+  }
+});
+
+// ─── POST /api/auth/logout — Thu hồi token hiện tại (không xóa hẳn thiết bị, khác /devices/:id) ─
+// Bảo mật: logout trước đây chỉ xóa token khỏi sessionStorage phía client — token vẫn còn hiệu
+// lực trên server tới hạn tự nhiên (7 ngày). Tăng tokenVersion của đúng thiết bị đang dùng khiến
+// token cũ (kể cả bản sao bị đánh cắp) hết tác dụng ngay lập tức; đăng nhập lại trên máy này vẫn
+// đăng ký lại thiết bị bình thường (không cần xóa/khôi phục E2EE key), khác hẳn revoke device.
+router.post('/logout', protect, async (req, res) => {
+  try {
+    if (req.deviceId) {
+      const device = req.user.devices.find(d => d.deviceId === req.deviceId);
+      if (device) {
+        device.tokenVersion += 1;
+        await req.user.save();
+      }
+    }
+    // Bootstrap token (chưa đăng ký thiết bị, hạn sẵn 15 phút) — không có gì để thu hồi thêm
+    res.json({ message: 'Đã đăng xuất' });
   } catch (err) {
     sendServerError(res, err);
   }

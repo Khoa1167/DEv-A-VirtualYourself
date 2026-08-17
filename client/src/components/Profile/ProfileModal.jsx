@@ -1,4 +1,6 @@
 import { useState, useRef } from 'react';
+import Toast from '../common/Toast';
+import Modal from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import useTimedMessage from '../../hooks/useTimedMessage';
@@ -235,15 +237,8 @@ export default function ProfileModal({ onClose }) {
   };
 
   return (
-    <div className="modal modal-open bg-black/50 backdrop-blur-sm z-50" onClick={onClose}>
-      <div className="modal-box p-0 max-w-md bg-base-100 border border-base-300 shadow-2xl" onClick={e => e.stopPropagation()}>
-        {mediaError && (
-          <div className="toast toast-top toast-center z-[110]">
-            <div className="alert alert-error text-sm">
-              <span>{mediaError}</span>
-            </div>
-          </div>
-        )}
+    <Modal onClose={onClose} boxClassName="p-0 max-w-md bg-base-100 border border-base-300 shadow-2xl">
+        <Toast message={mediaError} type="error" z="z-[110]" />
 
         {/* Header */}
         <div className="p-5 pb-4 border-b border-base-300 flex items-center justify-between">
@@ -596,8 +591,7 @@ export default function ProfileModal({ onClose }) {
 
         {/* Modal Đổi Email Bảo Mật (OTP) */}
         {showEmailModal && (
-          <div className="modal modal-open bg-black/50 backdrop-blur-sm z-[60]" onClick={() => setShowEmailModal(false)}>
-            <div className="modal-box max-w-sm bg-base-100 border border-base-300 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <Modal onClose={() => setShowEmailModal(false)} boxClassName="max-w-sm bg-base-100 border border-base-300 shadow-2xl" zIndex="z-[60]">
               <div className="flex items-center justify-between border-b border-base-300 pb-3 mb-4">
                 <h3 className="text-base font-bold">
                   {emailStep === 1 ? 'Thay đổi địa chỉ Email' : 'Nhập mã xác minh OTP'}
@@ -707,10 +701,8 @@ export default function ProfileModal({ onClose }) {
                   </div>
                 </form>
               )}
-            </div>
-          </div>
+          </Modal>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

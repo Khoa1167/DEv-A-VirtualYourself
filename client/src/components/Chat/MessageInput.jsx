@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Paperclip, Mic, Send, Trash2 } from 'lucide-react';
+import Toast from '../common/Toast';
 import api from '../../services/api';
 import { scanLinksInText } from '../../utils/securityScan';
 
@@ -283,15 +284,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
 
   return (
     <div className="px-4 py-3 bg-base-100 flex flex-col gap-1 border-t border-base-200 relative">
-      {uploadErrors.length > 0 && (
-        <div className="toast toast-top toast-center z-[100]">
-          {uploadErrors.map(e => (
-            <div key={e.id} className="alert alert-error text-sm">
-              <span>{e.text}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <Toast items={uploadErrors} type="error" />
 
       {replyTo && (
         <div className="flex justify-between items-center bg-base-200 border-l-2 border-primary rounded-lg px-3.5 py-1.5 text-xs shadow-xs mb-1">

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
@@ -9,7 +9,8 @@ export default function SetNickname() {
   const [error, setError]         = useState('');
   const [loading, setLoading]     = useState(false);
   const navigate                  = useNavigate();
-  const { setUser }               = useAuth();
+  const location                  = useLocation();
+  const { setUser, initDeviceKey } = useAuth();
 
   // Kiểm tra nickname realtime khi người dùng gõ
   useEffect(() => {
@@ -50,6 +51,19 @@ export default function SetNickname() {
     try {
       const { data } = await api.post('/auth/set-nickname', { nickname });
       setUser(data);
+
+      // Đăng ký khóa E2EE cho thiết bị này ngay khi hoàn tất đăng ký,
+      // giống hệt luồng login() — nếu không làm bước này, tài khoản mới sẽ
+      // kẹt ở bootstrap token và không truy cập được bạn bè/phòng chat.
+      const password = location.state?.password;
+      if (password) {
+        try {
+          await initDeviceKey(password);
+        } catch (err) {
+          console.warn('[E2EE] Initial device registration warning:', err);
+        }
+      }
+
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.message || 'Đặt nickname thất bại');

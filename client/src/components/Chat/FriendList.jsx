@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 import { useState, useEffect } from 'react';
+import Toast from '../common/Toast';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../context/AuthContext';
 import useTimedMessage from '../../hooks/useTimedMessage';
@@ -15,6 +16,7 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
   const [searchResults, setSearchResults] = useState([]);
   const [activeTab, setActiveTab] = useState('friends');
   const [actionError, showActionError] = useTimedMessage();
+  const [actionSuccess, showActionSuccess] = useTimedMessage();
 
   // Load danh sách bạn bè và lời mời
   useEffect(() => {
@@ -37,6 +39,24 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
       api.get('/friends').then(res => setFriends(res.data));
     });
     return off;
+  }, [on]);
+
+  // Cập nhật trạng thái online/offline của bạn bè realtime
+  useEffect(() => {
+    const updateFriendOnline = (userId, isOnline) => {
+      setFriends(prev => prev.map(f => {
+        if (f.sender?._id?.toString() === userId?.toString()) {
+          return { ...f, sender: { ...f.sender, isOnline } };
+        }
+        if (f.receiver?._id?.toString() === userId?.toString()) {
+          return { ...f, receiver: { ...f.receiver, isOnline } };
+        }
+        return f;
+      }));
+    };
+    const offOnline = on('user:online', ({ userId }) => updateFriendOnline(userId, true));
+    const offOffline = on('user:offline', ({ userId }) => updateFriendOnline(userId, false));
+    return () => { offOnline(); offOffline(); };
   }, [on]);
 
   // Tìm kiếm user
@@ -62,6 +82,7 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
       setSearchResults(prev =>
         prev.map(u => u._id === userId ? { ...u, requested: true } : u)
       );
+      showActionSuccess('Đã gửi lời mời kết bạn');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Lỗi gửi lời mời');
     }
@@ -71,13 +92,12 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
   const acceptRequest = async (friendship) => {
     showActionError('');
     try {
-      const { data } = await api.put(`/friends/accept/${friendship._id}`);
-      emit('friend:accepted', {
-        senderId: friendship.sender?._id || friendship.sender,
-        dmRoomId: data.dmRoom._id,
-      });
+      await api.put(`/friends/accept/${friendship._id}`);
+      // Join DM room + báo cho người gửi lời mời giờ server tự lo trong route accept ở trên
+      // (server verify chắc chắn sender/receiver/dmRoom từ DB — không còn emit chưa xác thực)
       setRequests(prev => prev.filter(r => r._id !== friendship._id));
       api.get('/friends').then(res => setFriends(res.data));
+      showActionSuccess('Kết bạn thành công');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Lỗi chấp nhận lời mời');
     }
@@ -89,6 +109,7 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
     try {
       await api.put(`/friends/reject/${friendshipId}`);
       setRequests(prev => prev.filter(r => r._id !== friendshipId));
+      showActionSuccess('Đã từ chối lời mời kết bạn');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Lỗi từ chối lời mời');
     }
@@ -140,11 +161,8 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
         </div>
       </div>
 
-      {actionError && (
-        <div className="alert alert-error text-xs py-2 px-4 rounded-none">
-          <span>{actionError}</span>
-        </div>
-      )}
+      <Toast message={actionError} type="error" variant="banner" />
+      <Toast message={actionSuccess} type="success" variant="banner" />
 
       {/* Tab: Danh sách bạn bè */}
       {activeTab === 'friends' && (

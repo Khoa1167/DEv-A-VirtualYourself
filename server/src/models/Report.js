@@ -17,6 +17,9 @@ const reportSchema = new mongoose.Schema({
 // Chống report trùng lặp (Deduplication)
 reportSchema.index({ reporter: 1, messageId: 1 }, { unique: true });
 
+// Weighted anti-brigading check (POST /) lọc theo reportedUser + khoảng thời gian gần đây
+reportSchema.index({ reportedUser: 1, createdAt: 1 });
+
 // TTL Index tự động xóa report 'dismissed' sau khi hết hạn expiresAt
 reportSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 

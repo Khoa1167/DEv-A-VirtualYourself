@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
+import Turnstile from '../common/Turnstile';
+
+const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
   const [step, setStep]                 = useState(1); // 1: Email, 2: OTP, 3: New Password
@@ -8,7 +11,10 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
   const [resetToken, setResetToken]     = useState('');
   const [newPassword, setNewPassword]   = useState('');
   const [confirmPw, setConfirmPw]       = useState('');
-  
+  const [turnstileToken, setTurnstileToken] = useState('');
+  // Đổi sau mỗi lần gửi để buộc Turnstile render lại — token chỉ dùng được 1 lần
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+
   const [error, setError]               = useState('');
   const [successMsg, setSuccessMsg]     = useState('');
   const [loading, setLoading]           = useState(false);
@@ -34,6 +40,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
     setConfirmPw('');
     setError('');
     setSuccessMsg('');
+    setTurnstileToken('');
     onClose();
   };
 
@@ -47,7 +54,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
     setLoading(true);
 
     try {
-      const res = await api.post('/auth/forgot-password', { email });
+      const res = await api.post('/auth/forgot-password', { email, turnstileToken });
       setSuccessMsg(res.data.message || 'Mã OTP đã được gửi đến email của bạn');
       setStep(2);
       setResendCooldown(60);
@@ -55,6 +62,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
       setError(err.response?.data?.message || 'Gửi OTP thất bại, vui lòng thử lại');
     } finally {
       setLoading(false);
+      setTurnstileResetKey(k => k + 1);
     }
   };
 
@@ -164,10 +172,12 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
               />
             </div>
 
+            <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+
             <button
               type="submit"
               className="btn btn-primary w-full mt-2 font-bold shadow-md shadow-primary/25"
-              disabled={loading}
+              disabled={loading || (turnstileEnabled && !turnstileToken)}
             >
               {loading ? (
                 <>
@@ -216,6 +226,10 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
               )}
             </button>
 
+            {resendCooldown === 0 && (
+              <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+            )}
+
             <div className="flex items-center justify-between text-xs text-base-content/60 mt-2">
               <button
                 type="button"
@@ -227,7 +241,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
               <button
                 type="button"
                 onClick={handleSendOtp}
-                disabled={resendCooldown > 0 || loading}
+                disabled={resendCooldown > 0 || loading || (turnstileEnabled && !turnstileToken)}
                 className="link link-hover text-primary disabled:text-base-content/40 disabled:no-underline"
               >
                 {resendCooldown > 0

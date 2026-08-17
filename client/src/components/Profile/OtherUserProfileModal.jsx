@@ -1,12 +1,19 @@
 import { useState, useEffect } from 'react';
+import { ShieldCheck, ChevronRight } from 'lucide-react';
+import Toast from '../common/Toast';
+import Modal from '../common/Modal';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
 import useTimedMessage from '../../hooks/useTimedMessage';
+import SafetyNumberModal from '../Chat/SafetyNumberModal';
 import { formatDistanceToNow, format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 
 export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, onInitiateCall }) {
+  const { user } = useAuth();
   const [profile, setProfile] = useState(null);
+  const [showSafetyNumber, setShowSafetyNumber] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
@@ -16,6 +23,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
   const [isEditingAlias, setIsEditingAlias] = useState(false);
   const [aliasLoading, setAliasLoading] = useState(false);
   const [actionError, showActionError] = useTimedMessage();
+  const [actionSuccess, showActionSuccess] = useTimedMessage();
 
   // Load thông tin profile
   const fetchProfile = async () => {
@@ -55,21 +63,25 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
   useEffect(() => {
     if (!profile?.user?._id) return;
 
-    const offStatus = on('user_status_changed', ({ userId: socketUserId, isOnline, lastSeen }) => {
-      if (socketUserId === profile.user._id) {
+    const updateStatus = (socketUserId, isOnline) => {
+      if (socketUserId?.toString() === profile.user._id?.toString()) {
         setProfile(prev => prev ? {
           ...prev,
           user: {
             ...prev.user,
             isOnline,
-            lastSeen: lastSeen || new Date(),
+            lastSeen: new Date(),
           }
         } : null);
       }
-    });
+    };
+
+    const offOnline = on('user:online', ({ userId }) => updateStatus(userId, true));
+    const offOffline = on('user:offline', ({ userId }) => updateStatus(userId, false));
 
     return () => {
-      if (offStatus) offStatus();
+      offOnline();
+      offOffline();
     };
   }, [profile?.user?._id, on]);
 
@@ -81,6 +93,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
     try {
       await api.post(`/friends/request/${userId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'pending_sent' }));
+      showActionSuccess('Đã gửi lời mời kết bạn');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Gửi lời mời thất bại');
     } finally {
@@ -94,6 +107,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
     try {
       await api.delete(`/friends/cancel/${userId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'none', friendshipId: null }));
+      showActionSuccess('Đã hủy lời mời kết bạn');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Hủy lời mời thất bại');
     } finally {
@@ -108,6 +122,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
     try {
       await api.put(`/friends/accept/${profile.friendshipId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'accepted' }));
+      showActionSuccess('Kết bạn thành công');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Chấp nhận thất bại');
     } finally {
@@ -122,6 +137,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
     try {
       await api.put(`/friends/reject/${profile.friendshipId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'none', friendshipId: null }));
+      showActionSuccess('Đã từ chối lời mời kết bạn');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Từ chối thất bại');
     } finally {
@@ -136,6 +152,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
     try {
       await api.delete(`/friends/unfriend/${userId}`);
       setProfile(prev => ({ ...prev, friendshipStatus: 'none', friendshipId: null }));
+      showActionSuccess('Đã hủy kết bạn');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Hủy kết bạn thất bại');
     } finally {
@@ -159,21 +176,9 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
   if (!userId) return null;
 
   return (
-    <div
-      className="modal modal-open bg-black/50 backdrop-blur-sm z-50"
-      onClick={onClose}
-    >
-      <div
-        className="modal-box p-0 max-w-md bg-base-100 border border-base-300 shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
-        {actionError && (
-          <div className="toast toast-top toast-center z-[110]">
-            <div className="alert alert-error text-sm">
-              <span>{actionError}</span>
-            </div>
-          </div>
-        )}
+    <Modal onClose={onClose} boxClassName="p-0 max-w-md bg-base-100 border border-base-300 shadow-2xl">
+        <Toast message={actionError} type="error" z="z-[110]" />
+        <Toast message={actionSuccess} type="success" z="z-[110]" />
 
         {/* Header Bar */}
         <div className="p-4 border-b border-base-300 flex items-center justify-between bg-base-200/50">
@@ -434,6 +439,20 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
               <div className="bg-base-200/80 border border-base-300 rounded-xl p-4 flex flex-col gap-3">
                 <h4 className="text-xs font-bold text-base-content/40 uppercase tracking-wider">Thông tin cá nhân</h4>
 
+                {profile.friendshipStatus === 'accepted' && (
+                  <button
+                    onClick={() => setShowSafetyNumber(true)}
+                    className="btn btn-sm btn-primary w-full text-white rounded-xl justify-between normal-case"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4" /> Mã an toàn E2EE
+                    </span>
+                    <span className="flex items-center gap-1 text-xs font-semibold">
+                      Xem &amp; xác minh <ChevronRight className="w-3.5 h-3.5" />
+                    </span>
+                  </button>
+                )}
+
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-base-content/50 font-medium">Email:</span>
                   <span className="font-semibold">{profile.user.email || 'Chưa cập nhật'}</span>
@@ -519,7 +538,15 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
             </>
           ) : null}
         </div>
-      </div>
-    </div>
+
+        {showSafetyNumber && profile && (
+          <SafetyNumberModal
+            user={user}
+            contactUser={profile.user}
+            onClose={() => setShowSafetyNumber(false)}
+            zIndex="z-[60]"
+          />
+        )}
+    </Modal>
   );
 }

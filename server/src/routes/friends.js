@@ -121,14 +121,20 @@ router.put('/accept/:friendshipId', protect, async (req, res) => {
     friendship.status = 'accepted';
     await friendship.save();
 
-    // Tự động tạo phòng DM giữa 2 người
-    const dmRoom = await Room.create({
-      name: `dm_${friendship.sender}_${friendship.receiver}`,
+    // Tự động tạo phòng DM giữa 2 người (tái sử dụng nếu đã từng kết bạn trước đó)
+    let dmRoom = await Room.findOne({
       isDM: true,
-      isPrivate: true,
-      members: [friendship.sender, friendship.receiver],
-      createdBy: req.user._id,
+      members: { $all: [friendship.sender, friendship.receiver] },
     });
+    if (!dmRoom) {
+      dmRoom = await Room.create({
+        name: `dm_${friendship.sender}_${friendship.receiver}`,
+        isDM: true,
+        isPrivate: true,
+        members: [friendship.sender, friendship.receiver],
+        createdBy: req.user._id,
+      });
+    }
 
     await friendship.populate('sender', 'username nickname avatar isOnline');
     await friendship.populate('receiver', 'username nickname avatar isOnline');
@@ -144,6 +150,14 @@ router.put('/accept/:friendshipId', protect, async (req, res) => {
         if (s.data.user && memberIds.includes(s.data.user._id.toString())) {
           s.join(dmRoom._id.toString());
           s.emit('room:added', populatedDmRoom);
+          // Báo riêng cho người GỬI lời mời biết đã được chấp nhận (người nhận vừa bấm nút, tự biết rồi)
+          if (s.data.user._id.toString() === friendship.sender._id.toString()) {
+            s.emit('friend:request_accepted', {
+              receiverId: friendship.receiver._id,
+              receiverNickname: friendship.receiver.nickname || friendship.receiver.username,
+              dmRoomId: dmRoom._id,
+            });
+          }
         }
       });
     }

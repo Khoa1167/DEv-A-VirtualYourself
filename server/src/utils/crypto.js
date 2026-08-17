@@ -1,10 +1,14 @@
 const crypto = require('crypto');
 
-// Đọc khóa gốc từ .env
+// Đọc khóa gốc từ .env — KHÔNG được có fallback hard-code: thiếu key phải crash ngay lúc khởi
+// động thay vì âm thầm mã hóa PII/report bằng 1 chuỗi cố định ai đọc source cũng biết được.
 const getMasterKey = () => {
   const hexKey = process.env.ENCRYPTION_KEY;
   if (!hexKey) {
-    return crypto.scryptSync('fallback_secret_chat_app_2026', 'master_salt', 32);
+    throw new Error(
+      'ENCRYPTION_KEY chưa được cấu hình trong .env — bắt buộc để mã hóa PII/report. ' +
+      'Tạo key ngẫu nhiên bằng: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    );
   }
   try {
     const key = Buffer.from(hexKey, 'hex');

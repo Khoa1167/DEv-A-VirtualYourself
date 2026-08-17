@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Modal from '../common/Modal';
 import { getDeviceId, getPrivateKey, getPublicKey, exportPrivateKeyEncrypted, importPrivateKeyFromBackup, exportPublicKeyFromPrivateKey, storePrivateKey, storePublicKey } from '../../utils/e2ee';
 
 export default function KeyBackupModal({ onClose }) {
@@ -86,8 +87,7 @@ export default function KeyBackupModal({ onClose }) {
   };
 
   return (
-    <div className="modal modal-open bg-black/50 backdrop-blur-sm z-50" onClick={onClose}>
-      <div className="modal-box max-w-md bg-base-100 border border-base-300 shadow-2xl" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} boxClassName="max-w-md bg-base-100 border border-base-300 shadow-2xl">
         <div className="flex items-center justify-between border-b border-base-300 pb-3 mb-4">
           <h3 className="text-base font-bold flex items-center gap-1.5">
             🔑 Sao lưu & Khôi phục Khóa E2EE
@@ -109,7 +109,7 @@ export default function KeyBackupModal({ onClose }) {
             onClick={() => { setActiveTab('backup'); setMessage({ type: '', text: '' }); }}
             className={`tab flex-1 font-bold ${activeTab === 'backup' ? 'tab-active' : ''}`}
           >
-            Export Backup
+            Sao lưu
           </button>
           <button
             type="button"
@@ -117,7 +117,7 @@ export default function KeyBackupModal({ onClose }) {
             onClick={() => { setActiveTab('restore'); setMessage({ type: '', text: '' }); }}
             className={`tab flex-1 font-bold ${activeTab === 'restore' ? 'tab-active' : ''}`}
           >
-            Restore Backup
+            Khôi phục
           </button>
         </div>
 
@@ -202,7 +202,6 @@ export default function KeyBackupModal({ onClose }) {
             </button>
           </form>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

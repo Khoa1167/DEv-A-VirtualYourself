@@ -155,21 +155,7 @@ export const encryptMessageForRoom = async (text, devicePublicKeys) => {
   const rawSessionKey = await window.crypto.subtle.exportKey('raw', sessionKey);
 
   // 3. Mã hóa sessionKey cho từng deviceId
-  const encryptedKeys = {};
-  for (const dev of devicePublicKeys) {
-    try {
-      if (!dev.publicKey) continue;
-      const pubKey = await importPublicKey(dev.publicKey);
-      const encryptedKeyBuf = await window.crypto.subtle.encrypt(
-        { name: 'RSA-OAEP' },
-        pubKey,
-        rawSessionKey
-      );
-      encryptedKeys[dev.deviceId] = arrayBufferToBase64(encryptedKeyBuf);
-    } catch (err) {
-      console.warn(`[E2EE] Cannot encrypt key for device ${dev.deviceId}:`, err);
-    }
-  }
+  const encryptedKeys = await wrapKeyForDevices(rawSessionKey, devicePublicKeys);
 
   return {
     content: arrayBufferToBase64(content),
@@ -178,6 +164,32 @@ export const encryptMessageForRoom = async (text, devicePublicKeys) => {
     encryptedKeys,
   };
 };
+
+/**
+ * RSA-OAEP wrap 1 raw key (session key hoặc Sender Key) riêng cho từng thiết bị.
+ * Dùng chung bởi encryptMessageForRoom (RSA-per-device) và wrapSenderKeyForDevices (Sender Key).
+ * @param {ArrayBuffer} rawKeyBuf
+ * @param {Array<{ deviceId: string, publicKey: string }>} devicePublicKeys
+ * @returns {object} Map deviceId -> base64 ciphertext
+ */
+async function wrapKeyForDevices(rawKeyBuf, devicePublicKeys) {
+  const encryptedKeys = {};
+  for (const dev of devicePublicKeys) {
+    try {
+      if (!dev.publicKey) continue;
+      const pubKey = await importPublicKey(dev.publicKey);
+      const encryptedKeyBuf = await window.crypto.subtle.encrypt(
+        { name: 'RSA-OAEP' },
+        pubKey,
+        rawKeyBuf
+      );
+      encryptedKeys[dev.deviceId] = arrayBufferToBase64(encryptedKeyBuf);
+    } catch (err) {
+      console.warn(`[E2EE] Cannot encrypt key for device ${dev.deviceId}:`, err);
+    }
+  }
+  return encryptedKeys;
+}
 
 /**
  * Giải mã tin nhắn bằng PrivateKey của thiết bị hiện tại
@@ -215,28 +227,90 @@ export const decryptMessage = async (msg, deviceId) => {
       ['decrypt']
     );
 
-    const contentBuf = base64ToArrayBuffer(msg.content);
-    const tagBuf = base64ToArrayBuffer(msg.tag);
-    const ivBuf = base64ToArrayBuffer(msg.iv);
-
-    // Gộp content + tag theo định dạng mã hóa Web Crypto API
-    const combinedBuf = new Uint8Array(contentBuf.byteLength + tagBuf.byteLength);
-    combinedBuf.set(new Uint8Array(contentBuf), 0);
-    combinedBuf.set(new Uint8Array(tagBuf), contentBuf.byteLength);
-
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: ivBuf },
-      sessionKey,
-      combinedBuf
-    );
-
-    const decoder = new TextDecoder();
-    return decoder.decode(decryptedBuffer);
+    return await decryptAesGcmContent(msg, sessionKey);
   } catch (err) {
     console.error('[E2EE] Decryption error:', err);
     return '[Lỗi Giải Mã Tin Nhắn]';
   }
 };
+
+// Gộp content + tag (định dạng Web Crypto API) rồi AES-GCM giải mã bằng key đã sẵn sàng.
+// Dùng chung bởi decryptMessage (RSA-per-device) và decryptWithSenderKey (Sender Key).
+async function decryptAesGcmContent(msg, aesKey) {
+  const contentBuf = base64ToArrayBuffer(msg.content);
+  const tagBuf = base64ToArrayBuffer(msg.tag);
+  const ivBuf = base64ToArrayBuffer(msg.iv);
+
+  const combinedBuf = new Uint8Array(contentBuf.byteLength + tagBuf.byteLength);
+  combinedBuf.set(new Uint8Array(contentBuf), 0);
+  combinedBuf.set(new Uint8Array(tagBuf), contentBuf.byteLength);
+
+  const decryptedBuffer = await window.crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: ivBuf },
+    aesKey,
+    combinedBuf
+  );
+  return new TextDecoder().decode(decryptedBuffer);
+}
+
+// ─── 4b. Sender Key (mã hóa nhóm — 1 khóa AES tĩnh/thiết bị gửi/epoch) ─────
+// Khác encryptMessageForRoom: KHÔNG RSA-wrap mỗi tin nhắn, chỉ AES-GCM bằng Sender Key
+// đã có sẵn (phân phối 1 lần khi tạo/khi đổi epoch qua wrapKeyForDevices ở trên).
+// Xem CLAUDE.md/plan "Sender Key cho mã hóa nhóm" — đánh đổi có chủ đích: khóa tĩnh theo
+// epoch, không tự ratchet từng tin nhắn như Signal thật.
+
+export const generateSenderKey = async () => {
+  return await window.crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+};
+
+export const wrapSenderKeyForDevices = async (senderKey, devicePublicKeys) => {
+  const rawKey = await window.crypto.subtle.exportKey('raw', senderKey);
+  return wrapKeyForDevices(rawKey, devicePublicKeys);
+};
+
+export const unwrapSenderKey = async (wrappedBase64, privateKey) => {
+  const wrappedBuf = base64ToArrayBuffer(wrappedBase64);
+  const rawKey = await window.crypto.subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, wrappedBuf);
+  return window.crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+};
+
+export const encryptWithSenderKey = async (text, senderKey) => {
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(text);
+  const ciphertextBuffer = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, senderKey, encoded);
+
+  const ciphertextArray = new Uint8Array(ciphertextBuffer);
+  const tag = ciphertextArray.slice(-16);
+  const content = ciphertextArray.slice(0, -16);
+
+  return {
+    content: arrayBufferToBase64(content),
+    iv: arrayBufferToBase64(iv),
+    tag: arrayBufferToBase64(tag),
+  };
+};
+
+export const decryptWithSenderKey = async (msg, senderKey) => {
+  try {
+    return await decryptAesGcmContent(msg, senderKey);
+  } catch (err) {
+    console.error('[E2EE] Sender Key decryption error:', err);
+    return '[Lỗi Giải Mã Tin Nhắn]';
+  }
+};
+
+// Cache Sender Key cục bộ — dùng chung IndexedDB store 'privateKeys' hiện có, key prefix riêng
+const senderKeyStorageKey = (roomId, deviceId, epoch) => `senderkey_${roomId}_${deviceId}_${epoch}`;
+
+export const storeSenderKey = (roomId, deviceId, epoch, senderKey) =>
+  storePrivateKey(senderKeyStorageKey(roomId, deviceId, epoch), senderKey);
+
+export const getSenderKey = (roomId, deviceId, epoch) =>
+  getPrivateKey(senderKeyStorageKey(roomId, deviceId, epoch));
 
 // ─── 5. Safety Number (Key Fingerprint) ────────────────────────────────────
 export const computeFingerprint = async (publicKeyJWK) => {

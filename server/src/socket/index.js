@@ -1,9 +1,9 @@
-const jwt        = require('jsonwebtoken');
 const User       = require('../models/User');
 const Message    = require('../models/Message');
 const Room       = require('../models/Room');
 const Friendship = require('../models/Friendship');
 const { encrypt, decrypt } = require('../utils/crypto');
+const { verifyJwt } = require('../utils/jwtKeys');
 
 
 const setupSocket = (io) => {
@@ -21,7 +21,7 @@ const setupSocket = (io) => {
     try {
       const token = socket.handshake.auth.token;
       if (!token) return next(new Error('Authentication error'));
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = verifyJwt(token);
       socket.user = await User.findById(decoded.id).select('-password');
       if (!socket.user) return next(new Error('User not found'));
       socket.data.user = socket.user;
@@ -48,7 +48,7 @@ const setupSocket = (io) => {
 
     // ===== EVENTS: TIN NHẮN =====
 
-    socket.on('message:send', async ({ roomId, content, iv, tag, encryptedKeys, type, replyTo, fileName, forwardedFrom }) => {
+    socket.on('message:send', async ({ roomId, content, iv, tag, encryptedKeys, type, replyTo, fileName, forwardedFrom, scheme, senderDeviceId, epoch }) => {
       try {
         // Rate Limiting Check theo userId
         const uIdStr = userId.toString();
@@ -90,6 +90,9 @@ const setupSocket = (io) => {
           iv: iv || null,
           tag: tag || null,
           encryptedKeys: encryptedKeys || {},
+          scheme: scheme || 'rsa-per-device',
+          senderDeviceId: senderDeviceId || null,
+          epoch: epoch ?? null,
           sender: userId,
           room: roomId,
           type: type || 'text',
@@ -124,13 +127,17 @@ const setupSocket = (io) => {
       }
     });
 
-    socket.on('typing:start', ({ roomId }) => {
+    socket.on('typing:start', async ({ roomId }) => {
+      const room = await Room.findOne({ _id: roomId, members: userId }).select('_id');
+      if (!room) return;
       socket.to(roomId).emit('typing:start', {
         userId, username: socket.user.nickname || socket.user.username, roomId,
       });
     });
 
-    socket.on('typing:stop', ({ roomId }) => {
+    socket.on('typing:stop', async ({ roomId }) => {
+      const room = await Room.findOne({ _id: roomId, members: userId }).select('_id');
+      if (!room) return;
       socket.to(roomId).emit('typing:stop', { userId, roomId });
     });
 
@@ -138,6 +145,8 @@ const setupSocket = (io) => {
       try {
         const msg = await Message.findById(messageId);
         if (!msg) return;
+        const room = await Room.findOne({ _id: msg.room, members: userId }).select('_id');
+        if (!room) return socket.emit('error', { message: 'Không có quyền' });
 
         const idx = msg.reactions.findIndex(r => r.emoji === emoji);
         if (idx > -1) {
@@ -159,22 +168,27 @@ const setupSocket = (io) => {
       }
     });
 
-    socket.on('message:edit', async ({ messageId, content, iv, tag, encryptedKeys }) => {
+    socket.on('message:edit', async ({ messageId, content, iv, tag, encryptedKeys, scheme, senderDeviceId, epoch }) => {
       try {
         const msg = await Message.findOne({ _id: messageId, sender: userId });
         if (!msg) return socket.emit('error', { message: 'Không có quyền chỉnh sửa tin nhắn này' });
         if (msg.isDeleted) return socket.emit('error', { message: 'Không thể chỉnh sửa tin nhắn đã bị thu hồi' });
         if (msg.type !== 'text') return socket.emit('error', { message: 'Chỉ có thể chỉnh sửa tin nhắn văn bản' });
 
-        if (!content || !iv || !tag || !encryptedKeys || Object.keys(encryptedKeys).length === 0) {
+        // encryptedKeys rỗng là hợp lệ khi scheme='sender-key' (khóa đã phân phối từ trước, không kèm theo từng tin nhắn)
+        const missingKeys = scheme !== 'sender-key' && (!encryptedKeys || Object.keys(encryptedKeys).length === 0);
+        if (!content || !iv || !tag || missingKeys) {
           return socket.emit('error', { message: 'Payload chỉnh sửa tin nhắn phải có nội dung được mã hóa E2EE.' });
         }
 
         msg.content = content;
         msg.iv = iv;
         msg.tag = tag;
-        msg.encryptedKeys = encryptedKeys;
+        msg.encryptedKeys = encryptedKeys || {};
         msg.encryptedKey = null;
+        msg.scheme = scheme || 'rsa-per-device';
+        msg.senderDeviceId = senderDeviceId || null;
+        msg.epoch = epoch ?? null;
         msg.isEdited = true;
         await msg.save();
 
@@ -183,7 +197,10 @@ const setupSocket = (io) => {
           content,
           iv,
           tag,
-          encryptedKeys,
+          encryptedKeys: msg.encryptedKeys,
+          scheme: msg.scheme,
+          senderDeviceId: msg.senderDeviceId,
+          epoch: msg.epoch,
           isEdited: true
         });
       } catch (err) {
@@ -209,7 +226,12 @@ const setupSocket = (io) => {
 
     // ===== EVENTS: PHÒNG CHAT =====
 
-    socket.on('room:join', (roomId) => {
+    socket.on('room:join', async (roomId) => {
+      // Bảo mật: chặn subscribe vào broadcast realtime của phòng không phải thành viên
+      // (rò rỉ room:updated/member_joined/settings_updated... cho người ngoài nếu không check)
+      const room = await Room.findOne({ _id: roomId, members: userId }).select('_id');
+      if (!room) return;
+
       socket.join(roomId);
       socket.to(roomId).emit('room:user_joined', {
         userId, username: socket.user.nickname || socket.user.username,
@@ -343,30 +365,10 @@ const setupSocket = (io) => {
       }
     });
 
-    // Chấp nhận kết bạn → thông báo cho cả 2 và join DM room
-    socket.on('friend:accepted', async ({ senderId, dmRoomId }) => {
-      try {
-        // Join DM room
-        socket.join(dmRoomId);
-
-        // Tìm socket của sender và thông báo
-        const allSockets = await io.fetchSockets();
-        const senderSocket = allSockets.find(
-          s => s.data.user?._id.toString() === senderId
-        );
-
-        if (senderSocket) {
-          senderSocket.join(dmRoomId);
-          senderSocket.emit('friend:request_accepted', {
-            receiverId: userId,
-            receiverNickname: socket.user.nickname || socket.user.username,
-            dmRoomId,
-          });
-        }
-      } catch (err) {
-        socket.emit('error', { message: err.message });
-      }
-    });
+    // Bảo mật: đã bỏ handler 'friend:accepted' — client tự gửi senderId/dmRoomId không hề được
+    // xác thực (join được bất kỳ dmRoomId nào, ép cả socket của senderId join theo). Logic join
+    // + thông báo giờ chuyển hẳn vào PUT /api/friends/accept/:friendshipId (server tự suy ra
+    // sender/receiver/dmRoom từ DB, không nhận gì từ client) — xem friends.js.
 
     // ===== DISCONNECT =====
 

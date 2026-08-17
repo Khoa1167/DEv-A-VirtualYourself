@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Modal from '../common/Modal';
 import api from '../../services/api';
 
 export default function ReportModal({ message, onClose, onSuccess }) {
@@ -42,8 +43,7 @@ export default function ReportModal({ message, onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal modal-open bg-black/50 backdrop-blur-sm z-50" onClick={onClose}>
-      <div className="modal-box max-w-sm bg-base-100 border border-base-300 shadow-2xl" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} boxClassName="max-w-sm bg-base-100 border border-base-300 shadow-2xl">
         <div className="flex items-center justify-between border-b border-base-300 pb-3 mb-4">
           <h3 className="text-base font-bold flex items-center gap-1.5">
             🚩 Báo cáo tin nhắn vi phạm
@@ -101,7 +101,6 @@ export default function ReportModal({ message, onClose, onSuccess }) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

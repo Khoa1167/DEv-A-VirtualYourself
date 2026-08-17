@@ -15,6 +15,15 @@ const messageSchema = new mongoose.Schema({
   tag:          { type: String, default: null },
   encryptedKey: { type: String, default: null },
   encryptedKeys:{ type: Map, of: String, default: {} }, // Map: deviceId -> encryptedSessionKey (Hex)
+  // Sender Key (nhóm) — 'sender-key' dùng khóa AES tĩnh theo epoch thay vì RSA-wrap từng thiết bị mỗi tin nhắn
+  scheme:         { type: String, enum: ['rsa-per-device', 'sender-key'], default: 'rsa-per-device' },
+  senderDeviceId: { type: String, default: null },
+  epoch:          { type: Number, default: null },
 }, { timestamps: true });
+
+// Truy vấn nặng nhất và thường xuyên nhất của cả app: GET /:id/messages lọc theo room + sắp xếp
+// createdAt giảm dần (phân trang) — không có index này thì mỗi lần mở 1 đoạn chat là quét toàn bộ
+// collection Message (mọi phòng cộng lại), càng nhiều tin nhắn càng chậm dần theo thời gian.
+messageSchema.index({ room: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Message', messageSchema);

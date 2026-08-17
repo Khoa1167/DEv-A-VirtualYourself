@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Modal from '../common/Modal';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
@@ -57,8 +58,7 @@ export default function ForwardModal({ isOpen, onClose, messageToForward, onForw
   };
 
   return (
-    <div className="modal modal-open bg-black/50 backdrop-blur-sm z-50">
-      <div className="modal-box p-0 w-full max-w-sm rounded-2xl shadow-2xl flex flex-col max-h-[450px] overflow-hidden border border-base-300">
+    <Modal boxClassName="p-0 w-full max-w-sm rounded-2xl shadow-2xl flex flex-col max-h-[450px] overflow-hidden border border-base-300">
 
         {/* Header */}
         <div className="flex justify-between items-center px-4 py-3.5 border-b border-base-300">
@@ -154,7 +154,6 @@ export default function ForwardModal({ isOpen, onClose, messageToForward, onForw
           </button>
         </div>
 
-      </div>
-    </div>
+    </Modal>
   );
 }

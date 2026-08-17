@@ -11,6 +11,15 @@ const app    = express();
 const server = http.createServer(app);
 app.disable('x-powered-by');
 
+// req.ip đọc đúng IP thật của client khi chạy sau reverse proxy (Cloudflare, Nginx...) — CHỈ bật
+// khi thật sự có đúng số hop proxy đó (đặt qua TRUST_PROXY_HOPS trong .env). Mặc định 0 = tắt,
+// an toàn cho dev local — bật sai (khi không thực sự có proxy đó) sẽ cho phép giả mạo IP qua
+// header X-Forwarded-For, phá vỡ mọi rate-limit theo IP (send-otp, forgot-password...).
+const trustProxyHops = parseInt(process.env.TRUST_PROXY_HOPS || '0', 10);
+if (trustProxyHops > 0) {
+  app.set('trust proxy', trustProxyHops);
+}
+
 const clientOrigins = process.env.CLIENT_URL
   ? process.env.CLIENT_URL.split(',').map(url => url.trim())
   : [];

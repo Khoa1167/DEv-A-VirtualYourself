@@ -1,14 +1,47 @@
 import { useState, useEffect } from 'react';
 import { Search, Plus } from 'lucide-react';
+import Toast from '../common/Toast';
+import useTimedMessage from '../../hooks/useTimedMessage';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
 import api from '../../services/api';
-import { decryptMessage, getDeviceId } from '../../utils/e2ee';
+import {
+  decryptMessage, getDeviceId, getPrivateKey,
+  unwrapSenderKey, decryptWithSenderKey, storeSenderKey, getSenderKey,
+} from '../../utils/e2ee';
 
 // Lấy thông tin người đang chat cùng trong phòng DM
 const getDMPartner = (room, currentUser) => {
   if (!room?.isDM || !room?.members) return null;
   return room.members.find(m => m._id?.toString() !== currentUser._id?.toString());
+};
+
+// Giải mã tin nhắn preview (lastMessage) — tự nhận diện scheme (RSA-per-device cũ/DM, hay Sender
+// Key cho nhóm). Trùng lặp có chủ đích với ChatWindow.jsx (Sidebar vốn đã tự giải mã riêng).
+const decryptRoomMessage = async (msg, roomId) => {
+  const devId = getDeviceId();
+  if (msg.scheme !== 'sender-key') {
+    return decryptMessage(msg, devId);
+  }
+
+  let senderKey = await getSenderKey(roomId, msg.senderDeviceId, msg.epoch);
+  if (!senderKey) {
+    try {
+      const { data: dist } = await api.get(`/rooms/${roomId}/sender-key`, {
+        params: { epoch: msg.epoch, senderDeviceId: msg.senderDeviceId },
+      });
+      const wrapped = dist.encryptedKeys?.[devId];
+      if (!wrapped) return '[Không thể giải mã tin nhắn — Thiết bị này chưa được phân phối Sender Key]';
+      const privateKey = await getPrivateKey(devId);
+      if (!privateKey) return '[Không tìm thấy Private Key trên thiết bị này]';
+      senderKey = await unwrapSenderKey(wrapped, privateKey);
+      await storeSenderKey(roomId, msg.senderDeviceId, msg.epoch, senderKey);
+    } catch (err) {
+      console.error('[E2EE] Sender Key fetch error:', err);
+      return '[Không thể giải mã tin nhắn — Chưa có Sender Key]';
+    }
+  }
+  return decryptWithSenderKey(msg, senderKey);
 };
 
 export default function Sidebar({ activeRoom, onSelectRoom }) {
@@ -17,21 +50,23 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
   const [rooms, setRooms]   = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomIsPublic, setNewRoomIsPublic] = useState(false);
+  const [newRoomNeedsApproval, setNewRoomNeedsApproval] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [allRooms, setAllRooms] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [createError, setCreateError] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all' | 'dm' | 'group'
+  const [infoMsg, showInfo] = useTimedMessage();
 
   // Load danh sách phòng của user
   useEffect(() => {
     api.get('/rooms').then(async res => {
-      const devId = getDeviceId();
       const decryptedRooms = await Promise.all(
         res.data.map(async room => {
           const lastMsg = room.lastMessage;
-          if (!lastMsg || lastMsg.isDeleted || !lastMsg.encryptedKeys) return room;
-          const decryptedText = await decryptMessage(lastMsg, devId);
+          if (!lastMsg || lastMsg.isDeleted || (!lastMsg.encryptedKeys && lastMsg.scheme !== 'sender-key')) return room;
+          const decryptedText = await decryptRoomMessage(lastMsg, room._id);
           return { ...room, lastMessage: { ...lastMsg, content: decryptedText } };
         })
       );
@@ -81,11 +116,29 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
     return off;
   }, [on]);
 
+  // Mình vừa rời nhóm hoặc bị kick — bỏ phòng đó khỏi danh sách
+  useEffect(() => {
+    const off = on('room:removed', ({ roomId }) => {
+      setRooms(prev => prev.filter(r => r._id !== roomId));
+    });
+    return off;
+  }, [on]);
+
+  // Người khác rời/bị kick khỏi 1 nhóm mình đang ở — cập nhật danh sách thành viên
+  useEffect(() => {
+    const off = on('room:member_left', ({ roomId, userId }) => {
+      setRooms(prev => prev.map(r => r._id === roomId
+        ? { ...r, members: r.members?.filter(m => m._id?.toString() !== userId?.toString()) }
+        : r
+      ));
+    });
+    return off;
+  }, [on]);
+
   // Cập nhật tin nhắn cuối khi có tin nhắn mới, bị xóa hoặc chỉnh sửa
   useEffect(() => {
     const offNew = on('message:new', async (msg) => {
-      const devId = getDeviceId();
-      const decryptedText = msg.isDeleted ? msg.content : await decryptMessage(msg, devId);
+      const decryptedText = msg.isDeleted ? msg.content : await decryptRoomMessage(msg, msg.room);
       const decryptedMsg = { ...msg, content: decryptedText };
       setRooms(prev =>
         prev.map(r => r._id === msg.room
@@ -104,15 +157,21 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
       );
     });
 
-    const offEdited = on('message:edited', async ({ messageId, content, iv, tag, encryptedKeys, isEdited }) => {
-      const devId = getDeviceId();
-      const decryptedText = await decryptMessage({ content, iv, tag, encryptedKeys }, devId);
-      setRooms(prev =>
-        prev.map(r => r.lastMessage?._id === messageId
-          ? { ...r, lastMessage: { ...r.lastMessage, content: decryptedText, isEdited, iv, tag, encryptedKeys } }
-          : r
-        )
-      );
+    const offEdited = on('message:edited', ({ messageId, content, iv, tag, encryptedKeys, scheme, senderDeviceId, epoch, isEdited }) => {
+      setRooms(prev => {
+        const targetRoom = prev.find(r => r.lastMessage?._id === messageId);
+        if (!targetRoom) return prev;
+        // roomId chỉ suy ra được từ state hiện có (payload message:edited không kèm roomId) —
+        // giải mã xong mới cập nhật state ở lần setRooms thứ 2, lần này giữ nguyên state cũ.
+        decryptRoomMessage({ content, iv, tag, encryptedKeys, scheme, senderDeviceId, epoch }, targetRoom._id)
+          .then(decryptedText => {
+            setRooms(cur => cur.map(r => r.lastMessage?._id === messageId
+              ? { ...r, lastMessage: { ...r.lastMessage, content: decryptedText, isEdited, iv, tag, encryptedKeys, scheme, senderDeviceId, epoch } }
+              : r
+            ));
+          });
+        return prev;
+      });
     });
 
     return () => {
@@ -128,9 +187,15 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
     if (!newRoomName.trim()) return;
     setCreateError('');
     try {
-      const { data } = await api.post('/rooms', { name: newRoomName });
+      const { data } = await api.post('/rooms', {
+        name: newRoomName,
+        isPrivate: !newRoomIsPublic,
+        joinPolicy: newRoomNeedsApproval ? 'approval' : 'open',
+      });
       setRooms(prev => [data, ...prev]);
       setNewRoomName('');
+      setNewRoomIsPublic(false);
+      setNewRoomNeedsApproval(false);
       setShowCreate(false);
       onSelectRoom(data);
       emit('room:join', data._id);
@@ -154,6 +219,11 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
   const joinRoom = async (room) => {
     try {
       const { data } = await api.post(`/rooms/${room._id}/join`);
+      if (data.status === 'pending') {
+        setShowJoin(false);
+        showInfo('Đã gửi yêu cầu tham gia, chờ quản trị viên duyệt');
+        return;
+      }
       setRooms(prev => {
         const exists = prev.find(r => r._id === data._id);
         if (exists) return prev;
@@ -169,6 +239,7 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
 
   return (
     <div className="flex flex-col h-full bg-base-100 text-base-content font-sans select-none">
+      <Toast message={infoMsg} type="success" />
       {/* Header Chats */}
       <div className="p-4 pb-2 flex flex-col gap-3 flex-shrink-0">
         {/* Tabs lọc theo loại cuộc trò chuyện */}
@@ -216,18 +287,26 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
 
         {/* Form tạo phòng */}
         {showCreate && (
-          <div className="mb-2">
+          <div className="mb-2 bg-base-200/50 rounded-xl p-2.5 flex flex-col gap-2">
             <form onSubmit={createRoom} className="join w-full">
               <input
                 value={newRoomName}
                 onChange={e => setNewRoomName(e.target.value)}
                 placeholder="Tên phòng mới..."
-                className="input input-bordered input-sm join-item w-full bg-base-200"
+                className="input input-bordered input-sm join-item w-full bg-base-100"
                 autoFocus
               />
               <button type="submit" className="btn btn-primary btn-sm join-item text-white">Tạo</button>
             </form>
-            {createError && <p className="text-error text-[11px] mt-1 px-1">{createError}</p>}
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" className="checkbox checkbox-xs" checked={newRoomIsPublic} onChange={e => setNewRoomIsPublic(e.target.checked)} />
+              Phòng công khai (ai cũng tìm thấy ở mục tìm kiếm)
+            </label>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input type="checkbox" className="checkbox checkbox-xs" checked={newRoomNeedsApproval} onChange={e => setNewRoomNeedsApproval(e.target.checked)} />
+              Cần duyệt khi có người xin vào
+            </label>
+            {createError && <p className="text-error text-[11px]">{createError}</p>}
           </div>
         )}
 
