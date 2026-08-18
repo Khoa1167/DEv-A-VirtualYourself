@@ -1,52 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import Toast from '../common/Toast';
+import useTimedMessage from '../../hooks/useTimedMessage';
+import useAvailabilityCheck from '../../hooks/useAvailabilityCheck';
 
 export default function SetNickname() {
   const [nickname, setNickname]   = useState('');
-  const [status, setStatus]       = useState(''); // 'checking' | 'available' | 'taken' | ''
-  const [error, setError]         = useState('');
+  const status = useAvailabilityCheck(nickname, {
+    checkFn: async (v) => (await api.post('/auth/check-nickname', { nickname: v })).data.available,
+    minLength: 2,
+  });
+  const [error, showError]        = useTimedMessage();
   const [loading, setLoading]     = useState(false);
   const navigate                  = useNavigate();
   const location                  = useLocation();
   const { setUser, initDeviceKey } = useAuth();
 
-  // Kiểm tra nickname realtime khi người dùng gõ
-  useEffect(() => {
-    let isMounted = true;
-    if (nickname.trim().length < 2) {
-      setTimeout(() => {
-        if (isMounted) setStatus('');
-      }, 0);
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    setTimeout(() => {
-      if (isMounted) setStatus('checking');
-    }, 0);
-
-    const timeout = setTimeout(async () => {
-      try {
-        const { data } = await api.post('/auth/check-nickname', { nickname });
-        if (isMounted) setStatus(data.available ? 'available' : 'taken');
-      } catch {
-        if (isMounted) setStatus('');
-      }
-    }, 500); // debounce 500ms
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeout);
-    };
-  }, [nickname]);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (status !== 'available') return;
-    setError('');
+    showError('');
     setLoading(true);
     try {
       const { data } = await api.post('/auth/set-nickname', { nickname });
@@ -66,7 +41,7 @@ export default function SetNickname() {
 
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || 'Đặt nickname thất bại');
+      showError(err.response?.data?.message || 'Đặt nickname thất bại');
     } finally {
       setLoading(false);
     }
@@ -88,11 +63,7 @@ export default function SetNickname() {
             Tên hiển thị là tên người khác thấy khi bạn chat. Bạn có thể thay đổi sau.
           </p>
           
-          {error && (
-            <div className="alert alert-error shadow-sm py-3 mb-4 rounded-lg">
-              <span className="text-sm font-medium">{error}</span>
-            </div>
-          )}
+          <Toast message={error} type="error" variant="banner" alertClassName="shadow-sm py-3 mb-4 rounded-lg text-sm font-medium" />
           
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="form-control">

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import Turnstile from '../common/Turnstile';
+import Toast from '../common/Toast';
+import useTimedMessage from '../../hooks/useTimedMessage';
 
 const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
@@ -15,8 +17,8 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
   // Đổi sau mỗi lần gửi để buộc Turnstile render lại — token chỉ dùng được 1 lần
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
-  const [error, setError]               = useState('');
-  const [successMsg, setSuccessMsg]     = useState('');
+  const [error, showError]              = useTimedMessage();
+  const [successMsg, showSuccessMsg]    = useTimedMessage();
   const [loading, setLoading]           = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -38,8 +40,8 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
     setResetToken('');
     setNewPassword('');
     setConfirmPw('');
-    setError('');
-    setSuccessMsg('');
+    showError('');
+    showSuccessMsg('');
     setTurnstileToken('');
     onClose();
   };
@@ -47,19 +49,19 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
   // Bước 1: Gửi OTP đến Email
   const handleSendOtp = async (e) => {
     e.preventDefault();
-    if (!email.trim()) return setError('Vui lòng nhập email');
+    if (!email.trim()) return showError('Vui lòng nhập email');
 
-    setError('');
-    setSuccessMsg('');
+    showError('');
+    showSuccessMsg('');
     setLoading(true);
 
     try {
       const res = await api.post('/auth/forgot-password', { email, turnstileToken });
-      setSuccessMsg(res.data.message || 'Mã OTP đã được gửi đến email của bạn');
+      showSuccessMsg(res.data.message || 'Mã OTP đã được gửi đến email của bạn');
       setStep(2);
       setResendCooldown(60);
     } catch (err) {
-      setError(err.response?.data?.message || 'Gửi OTP thất bại, vui lòng thử lại');
+      showError(err.response?.data?.message || 'Gửi OTP thất bại, vui lòng thử lại');
     } finally {
       setLoading(false);
       setTurnstileResetKey(k => k + 1);
@@ -69,19 +71,19 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
   // Bước 2: Xác thực mã OTP
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
-    if (!otp.trim()) return setError('Vui lòng nhập mã OTP');
+    if (!otp.trim()) return showError('Vui lòng nhập mã OTP');
 
-    setError('');
-    setSuccessMsg('');
+    showError('');
+    showSuccessMsg('');
     setLoading(true);
 
     try {
       const res = await api.post('/auth/verify-reset-otp', { email, otp });
       setResetToken(res.data.resetToken);
-      setSuccessMsg('Xác thực OTP thành công! Vui lòng nhập mật khẩu mới.');
+      showSuccessMsg('Xác thực OTP thành công! Vui lòng nhập mật khẩu mới.');
       setStep(3);
     } catch (err) {
-      setError(err.response?.data?.message || 'Xác thực OTP thất bại');
+      showError(err.response?.data?.message || 'Xác thực OTP thất bại');
     } finally {
       setLoading(false);
     }
@@ -91,14 +93,14 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
   const handleResetPassword = async (e) => {
     e.preventDefault();
     if (newPassword.length < 6) {
-      return setError('Mật khẩu mới phải chứa ít nhất 6 ký tự');
+      return showError('Mật khẩu mới phải chứa ít nhất 6 ký tự');
     }
     if (newPassword !== confirmPw) {
-      return setError('Mật khẩu xác nhận không trùng khớp');
+      return showError('Mật khẩu xác nhận không trùng khớp');
     }
 
-    setError('');
-    setSuccessMsg('');
+    showError('');
+    showSuccessMsg('');
     setLoading(true);
 
     try {
@@ -107,13 +109,13 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
         resetToken,
         newPassword,
       });
-      setSuccessMsg(res.data.message || 'Đổi mật khẩu thành công!');
+      showSuccessMsg(res.data.message || 'Đổi mật khẩu thành công!');
       setTimeout(() => {
         if (onSuccess) onSuccess();
         handleClose();
       }, 1500);
     } catch (err) {
-      setError(err.response?.data?.message || 'Đổi mật khẩu thất bại');
+      showError(err.response?.data?.message || 'Đổi mật khẩu thất bại');
     } finally {
       setLoading(false);
     }
@@ -141,17 +143,8 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
           {step === 3 && 'Tạo mật khẩu mới an toàn cho tài khoản của bạn'}
         </p>
 
-        {error && (
-          <div className="alert alert-error text-xs py-2 px-3 mb-4 rounded-lg">
-            <span>{error}</span>
-          </div>
-        )}
-
-        {successMsg && (
-          <div className="alert alert-success text-xs py-2 px-3 mb-4 rounded-lg text-white">
-            <span>{successMsg}</span>
-          </div>
-        )}
+        <Toast message={error} type="error" variant="banner" alertClassName="text-xs mb-4 rounded-lg" />
+        <Toast message={successMsg} type="success" variant="banner" alertClassName="text-xs mb-4 rounded-lg" />
 
         {/* BƯỚC 1: NHẬP EMAIL */}
         {step === 1 && (

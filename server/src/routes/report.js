@@ -7,6 +7,7 @@ const User = require('../models/User');
 const { protect, requireAdmin } = require('../middleware/auth');
 const { encryptReportContent } = require('../utils/crypto');
 const sendServerError = require('../utils/sendServerError');
+const userFields = require('../utils/publicUserFields');
 
 // ─── POST /api/reports — Gửi hoặc cập nhật báo cáo tin nhắn ─────────────────────
 router.post('/', protect, async (req, res) => {
@@ -135,8 +136,8 @@ router.post('/', protect, async (req, res) => {
 router.get('/', protect, requireAdmin, async (req, res) => {
   try {
     const reports = await Report.find({})
-      .populate('reporter', 'username nickname avatar reportTrustScore')
-      .populate('reportedUser', 'username nickname avatar')
+      .populate('reporter', `${userFields.BASIC} reportTrustScore`)
+      .populate('reportedUser', userFields.BASIC)
       .sort({ createdAt: -1 })
       .limit(50);
 

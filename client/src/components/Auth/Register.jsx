@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import Turnstile from '../common/Turnstile';
+import Toast from '../common/Toast';
+import useTimedMessage from '../../hooks/useTimedMessage';
+import useAvailabilityCheck from '../../hooks/useAvailabilityCheck';
 
 const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
@@ -16,42 +19,14 @@ export default function Register() {
   // gửi token cũ đã bị Cloudflare tiêu thụ, luôn báo "Xác minh CAPTCHA thất bại" oan.
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [otp, setOtp]               = useState('');
-  const [usernameStatus, setUsernameStatus] = useState('');
-  const [error, setError]           = useState('');
+  const usernameStatus = useAvailabilityCheck(form.username, {
+    checkFn: async (username) => (await api.post('/auth/check-username', { username })).data.available,
+    minLength: 3,
+  });
+  const [error, showError]          = useTimedMessage();
   const [loading, setLoading]       = useState(false);
   const [countdown, setCountdown]   = useState(0); // đếm ngược 5 phút
   const navigate                    = useNavigate();
-
-  // Kiểm tra username realtime
-  useEffect(() => {
-    let isMounted = true;
-    if (form.username.trim().length < 3) {
-      setTimeout(() => {
-        if (isMounted) setUsernameStatus('');
-      }, 0);
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    setTimeout(() => {
-      if (isMounted) setUsernameStatus('checking');
-    }, 0);
-
-    const timeout = setTimeout(async () => {
-      try {
-        const { data } = await api.post('/auth/check-username', { username: form.username });
-        if (isMounted) setUsernameStatus(data.available ? 'available' : 'taken');
-      } catch {
-        if (isMounted) setUsernameStatus('');
-      }
-    }, 500);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeout);
-    };
-  }, [form.username]);
 
   // Đếm ngược 5 phút sau khi gửi OTP
   useEffect(() => {
@@ -74,13 +49,13 @@ export default function Register() {
   // Bước 1: Gửi OTP
   const handleSendOTP = async (e) => {
     e.preventDefault();
-    setError('');
+    showError('');
 
     if (form.password !== form.confirmPassword) {
-      setError('Mật khẩu xác nhận không khớp'); return;
+      showError('Mật khẩu xác nhận không khớp'); return;
     }
     if (usernameStatus !== 'available') {
-      setError('Vui lòng kiểm tra tên tài khoản'); return;
+      showError('Vui lòng kiểm tra tên tài khoản'); return;
     }
 
     setLoading(true);
@@ -95,7 +70,7 @@ export default function Register() {
       setStep(2);
       setCountdown(300); // 5 phút
     } catch (err) {
-      setError(err.response?.data?.message || 'Gửi OTP thất bại');
+      showError(err.response?.data?.message || 'Gửi OTP thất bại');
     } finally {
       setLoading(false);
       setTurnstileResetKey(k => k + 1);
@@ -105,9 +80,9 @@ export default function Register() {
   // Bước 2: Xác thực OTP
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
-    setError('');
+    showError('');
     if (otp.length !== 6) {
-      setError('OTP phải có 6 chữ số'); return;
+      showError('OTP phải có 6 chữ số'); return;
     }
     setLoading(true);
     try {
@@ -118,7 +93,7 @@ export default function Register() {
       sessionStorage.setItem('token', data.token);
       navigate('/set-nickname', { state: { password: form.password } });
     } catch (err) {
-      setError(err.response?.data?.message || 'Xác thực OTP thất bại');
+      showError(err.response?.data?.message || 'Xác thực OTP thất bại');
     } finally {
       setLoading(false);
     }
@@ -126,7 +101,7 @@ export default function Register() {
 
   // Gửi lại OTP
   const handleResendOTP = async () => {
-    setError('');
+    showError('');
     setOtp('');
     setLoading(true);
     try {
@@ -139,7 +114,7 @@ export default function Register() {
       });
       setCountdown(300);
     } catch (err) {
-      setError(err.response?.data?.message || 'Gửi lại OTP thất bại');
+      showError(err.response?.data?.message || 'Gửi lại OTP thất bại');
     } finally {
       setLoading(false);
       setTurnstileResetKey(k => k + 1);
@@ -167,11 +142,7 @@ export default function Register() {
               <li className="step">Xác thực</li>
             </ul>
 
-            {error && (
-              <div className="alert alert-error shadow-sm py-3 mb-4 rounded-lg">
-                <span className="text-sm font-medium">{error}</span>
-              </div>
-            )}
+            <Toast message={error} type="error" variant="banner" alertClassName="shadow-sm py-3 mb-4 rounded-lg text-sm font-medium" />
 
             <form onSubmit={handleSendOTP} className="flex flex-col gap-4">
               <div className="form-control">
@@ -341,7 +312,7 @@ export default function Register() {
 
           <div className="flex justify-between items-center mt-6 text-sm">
             <button
-              onClick={() => { setStep(1); setError(''); setOtp(''); }}
+              onClick={() => { setStep(1); showError(''); setOtp(''); }}
               className="btn btn-ghost btn-sm text-primary font-semibold"
             >
               ← Quay lại

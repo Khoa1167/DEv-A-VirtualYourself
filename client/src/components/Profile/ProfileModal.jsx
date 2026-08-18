@@ -4,10 +4,10 @@ import Modal from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import useTimedMessage from '../../hooks/useTimedMessage';
+import useAvailabilityCheck from '../../hooks/useAvailabilityCheck';
 
 export default function ProfileModal({ onClose }) {
   const { user, setUser } = useAuth();
-  const [tab, setTab] = useState('info'); // 'info' | 'password'
   const [now] = useState(() => Date.now());
   const fileInputRef = useRef(null);
   const coverInputRef = useRef(null);
@@ -21,56 +21,29 @@ export default function ProfileModal({ onClose }) {
     gender: user.gender || '',
     bio: user.bio || '',
   });
-  const [nicknameStatus, setNicknameStatus] = useState('');
-  const [infoError, setInfoError] = useState('');
+  const nicknameStatus = useAvailabilityCheck(form.nickname, {
+    checkFn: async (v) => (await api.post('/auth/check-nickname', { nickname: v })).data.available,
+    minLength: 2,
+    debounceMs: 200,
+    skipValue: user.nickname,
+  });
+  const [infoError, showInfoError] = useTimedMessage();
   const [infoLoading, setInfoLoading] = useState(false);
-  const [infoSuccess, setInfoSuccess] = useState('');
-  const nicknameTimerRef = useRef(null);
+  const [infoSuccess, showInfoSuccess] = useTimedMessage();
 
   // ── Form đổi Email có xác thực OTP ──
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailStep, setEmailStep] = useState(1); // 1: password + newEmail, 2: OTP
   const [emailForm, setEmailForm] = useState({ currentPassword: '', newEmail: '', otp: '' });
-  const [emailError, setEmailError] = useState('');
-  const [emailSuccess, setEmailSuccess] = useState('');
+  const [emailError, showEmailError] = useTimedMessage();
+  const [emailSuccess, showEmailSuccess] = useTimedMessage();
   const [emailLoading, setEmailLoading] = useState(false);
-
-  // ── Form đổi mật khẩu ──
-  const [pwForm, setPwForm] = useState({
-    currentPassword: '', newPassword: '', confirmPassword: ''
-  });
-  const [pwError, setPwError] = useState('');
-  const [pwLoading, setPwLoading] = useState(false);
-  const [pwSuccess, setPwSuccess] = useState('');
 
   // ── Avatar ──
   const [avatarPreview, setAvatarPreview] = useState(user.avatar || '');
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [mediaError, showMediaError] = useTimedMessage();
-
-  // Kiểm tra nickname realtime với debounce
-  const checkNickname = (value) => {
-    setForm(prev => ({ ...prev, nickname: value }));
-    if (nicknameTimerRef.current) {
-      clearTimeout(nicknameTimerRef.current);
-    }
-
-    if (value === user.nickname || value.trim().length < 2) {
-      setNicknameStatus('');
-      return;
-    }
-
-    setNicknameStatus('checking');
-    nicknameTimerRef.current = setTimeout(async () => {
-      try {
-        const { data } = await api.post('/auth/check-nickname', { nickname: value });
-        setNicknameStatus(data.available ? 'available' : 'taken');
-      } catch {
-        setNicknameStatus('');
-      }
-    }, 200);
-  };
 
   const handleSelectAvatar = (e) => {
     const file = e.target.files[0];
@@ -144,18 +117,18 @@ export default function ProfileModal({ onClose }) {
 
   const handleRequestEmailChange = async (e) => {
     e.preventDefault();
-    setEmailError('');
-    setEmailSuccess('');
+    showEmailError('');
+    showEmailSuccess('');
     setEmailLoading(true);
     try {
       const { data } = await api.post('/auth/request-email-change', {
         currentPassword: emailForm.currentPassword,
         newEmail: emailForm.newEmail,
       });
-      setEmailSuccess(data.message);
+      showEmailSuccess(data.message);
       setEmailStep(2);
     } catch (err) {
-      setEmailError(err.response?.data?.message || 'Yêu cầu đổi email thất bại');
+      showEmailError(err.response?.data?.message || 'Yêu cầu đổi email thất bại');
     } finally {
       setEmailLoading(false);
     }
@@ -163,8 +136,8 @@ export default function ProfileModal({ onClose }) {
 
   const handleVerifyEmailChange = async (e) => {
     e.preventDefault();
-    setEmailError('');
-    setEmailSuccess('');
+    showEmailError('');
+    showEmailSuccess('');
     setEmailLoading(true);
     try {
       const { data } = await api.post('/auth/verify-email-change', {
@@ -173,12 +146,12 @@ export default function ProfileModal({ onClose }) {
       });
       setUser(data.user);
       setForm(prev => ({ ...prev, email: data.user.email }));
-      setInfoSuccess('Đổi email thành công!');
+      showInfoSuccess('Đổi email thành công!');
       setShowEmailModal(false);
       setEmailStep(1);
       setEmailForm({ currentPassword: '', newEmail: '', otp: '' });
     } catch (err) {
-      setEmailError(err.response?.data?.message || 'Xác nhận mã OTP thất bại');
+      showEmailError(err.response?.data?.message || 'Xác nhận mã OTP thất bại');
     } finally {
       setEmailLoading(false);
     }
@@ -186,46 +159,22 @@ export default function ProfileModal({ onClose }) {
 
   const handleSaveInfo = async (e) => {
     e.preventDefault();
-    setInfoError('');
-    setInfoSuccess('');
+    showInfoError('');
+    showInfoSuccess('');
 
     if (nicknameStatus === 'taken') {
-      setInfoError('Tên hiển thị đã tồn tại'); return;
+      showInfoError('Tên hiển thị đã tồn tại'); return;
     }
 
     setInfoLoading(true);
     try {
       const { data } = await api.put('/auth/profile', form);
       setUser(data);
-      setInfoSuccess('Cập nhật thành công!');
+      showInfoSuccess('Cập nhật thành công!');
     } catch (err) {
-      setInfoError(err.response?.data?.message || 'Cập nhật thất bại');
+      showInfoError(err.response?.data?.message || 'Cập nhật thất bại');
     } finally {
       setInfoLoading(false);
-    }
-  };
-
-  const handleChangePassword = async (e) => {
-    e.preventDefault();
-    setPwError('');
-    setPwSuccess('');
-
-    if (pwForm.newPassword !== pwForm.confirmPassword) {
-      setPwError('Mật khẩu mới xác nhận không khớp'); return;
-    }
-
-    setPwLoading(true);
-    try {
-      await api.put('/auth/change-password', {
-        currentPassword: pwForm.currentPassword,
-        newPassword: pwForm.newPassword,
-      });
-      setPwSuccess('Đổi mật khẩu thành công!');
-      setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    } catch (err) {
-      setPwError(err.response?.data?.message || 'Đổi mật khẩu thất bại');
-    } finally {
-      setPwLoading(false);
     }
   };
 
@@ -320,27 +269,9 @@ export default function ProfileModal({ onClose }) {
             />
           </div>
 
-          {/* Tabs */}
-          <div role="tablist" className="tabs tabs-bordered w-full mb-2">
-            <button
-              role="tab"
-              className={`tab flex-1 font-bold ${tab === 'info' ? 'tab-active' : ''}`}
-              onClick={() => setTab('info')}
-            >
-              Thông tin tài khoản
-            </button>
-            <button
-              role="tab"
-              className={`tab flex-1 font-bold ${tab === 'password' ? 'tab-active' : ''}`}
-              onClick={() => setTab('password')}
-            >
-              Đổi mật khẩu
-            </button>
-          </div>
-
-          {/* Tab: Thông tin */}
-          {tab === 'info' && (
-            <form onSubmit={handleSaveInfo} className="flex flex-col gap-4">
+          {/* Thông tin tài khoản */}
+          <h3 className="text-sm font-bold text-base-content/70 -mb-1">Thông tin tài khoản</h3>
+          <form onSubmit={handleSaveInfo} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Tên tài khoản</label>
                 <input value={user.username} disabled className="input input-bordered input-sm bg-base-200 text-base-content/40 w-full select-none" />
@@ -363,7 +294,7 @@ export default function ProfileModal({ onClose }) {
                       <input
                         className="input input-bordered input-sm focus:input-primary w-full"
                         value={form.nickname}
-                        onChange={e => checkNickname(e.target.value)}
+                        onChange={e => setForm(prev => ({ ...prev, nickname: e.target.value }))}
                         minLength={2}
                       />
                       <div className="min-h-[16px]">{getNicknameMsg()}</div>
@@ -385,8 +316,8 @@ export default function ProfileModal({ onClose }) {
                   <button
                     type="button"
                     onClick={() => {
-                      setEmailError('');
-                      setEmailSuccess('');
+                      showEmailError('');
+                      showEmailSuccess('');
                       setEmailStep(1);
                       setEmailForm({ currentPassword: '', newEmail: '', otp: '' });
                       setShowEmailModal(true);
@@ -458,75 +389,13 @@ export default function ProfileModal({ onClose }) {
                 />
               </div>
 
-              {infoError && (
-                <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
-                  <span>{infoError}</span>
-                </div>
-              )}
-              {infoSuccess && (
-                <div className="alert alert-success py-2 px-3 text-xs font-semibold rounded-lg">
-                  <span>{infoSuccess}</span>
-                </div>
-              )}
+              <Toast message={infoError} type="error" variant="banner" alertClassName="py-2 px-3 text-xs font-semibold rounded-lg" />
+              <Toast message={infoSuccess} type="success" variant="banner" alertClassName="py-2 px-3 text-xs font-semibold rounded-lg" />
 
               <button type="submit" className="btn btn-primary text-white rounded-full mt-2" disabled={infoLoading}>
                 {infoLoading ? 'Đang lưu...' : 'Lưu thay đổi'}
               </button>
             </form>
-          )}
-
-          {/* Tab: Đổi mật khẩu */}
-          {tab === 'password' && (
-            <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu hiện tại</label>
-                <input
-                  type="password"
-                  className="input input-bordered input-sm focus:input-primary w-full"
-                  value={pwForm.currentPassword}
-                  onChange={e => setPwForm({ ...pwForm, currentPassword: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu mới</label>
-                <input
-                  type="password"
-                  className="input input-bordered input-sm focus:input-primary w-full"
-                  value={pwForm.newPassword}
-                  onChange={e => setPwForm({ ...pwForm, newPassword: e.target.value })}
-                  required minLength={6}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Xác nhận mật khẩu mới</label>
-                <input
-                  type="password"
-                  className="input input-bordered input-sm focus:input-primary w-full"
-                  value={pwForm.confirmPassword}
-                  onChange={e => setPwForm({ ...pwForm, confirmPassword: e.target.value })}
-                  required
-                />
-              </div>
-
-              {pwError && (
-                <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
-                  <span>{pwError}</span>
-                </div>
-              )}
-              {pwSuccess && (
-                <div className="alert alert-success py-2 px-3 text-xs font-semibold rounded-lg">
-                  <span>{pwSuccess}</span>
-                </div>
-              )}
-
-              <button type="submit" className="btn btn-primary text-white rounded-full mt-2" disabled={pwLoading}>
-                {pwLoading ? 'Đang đổi...' : 'Đổi mật khẩu'}
-              </button>
-            </form>
-          )}
         </div>
 
         {/* Popup Floating Confirm Bar cho Ảnh bìa */}
@@ -635,11 +504,7 @@ export default function ProfileModal({ onClose }) {
                     />
                   </div>
 
-                  {emailError && (
-                    <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
-                      <span>{emailError}</span>
-                    </div>
-                  )}
+                  <Toast message={emailError} type="error" variant="banner" alertClassName="py-2 px-3 text-xs font-semibold rounded-lg" />
 
                   <div className="flex items-center justify-end gap-2 mt-2">
                     <button
@@ -677,11 +542,7 @@ export default function ProfileModal({ onClose }) {
                     />
                   </div>
 
-                  {emailError && (
-                    <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
-                      <span>{emailError}</span>
-                    </div>
-                  )}
+                  <Toast message={emailError} type="error" variant="banner" alertClassName="py-2 px-3 text-xs font-semibold rounded-lg" />
 
                   <div className="flex items-center justify-between mt-2">
                     <button

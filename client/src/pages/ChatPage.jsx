@@ -10,6 +10,7 @@ import CallModal  from '../components/Chat/CallModal';
 import OtherUserProfileModal from '../components/Profile/OtherUserProfileModal';
 import ProfileModal from '../components/Profile/ProfileModal';
 import KeyBackupModal from '../components/Settings/KeyBackupModal';
+import SettingsModal from '../components/Settings/SettingsModal';
 import api from '../services/api';
 import { useSocket } from '../hooks/useSocket';
 import useTimedMessage from '../hooks/useTimedMessage';
@@ -26,6 +27,7 @@ export default function ChatPage() {
   const [inviteJoining, setInviteJoining] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [showKeyBackup, setShowKeyBackup] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [toast, showToast] = useTimedMessage();
 
   // States cho tính năng cuộc gọi WebRTC
@@ -326,6 +328,7 @@ export default function ChatPage() {
         onSelectFriends={() => setView('friends')}
         onOpenProfile={() => setShowProfile(true)}
         onOpenKeyBackup={() => setShowKeyBackup(true)}
+        onOpenSettings={() => setShowSettings(true)}
       />
 
       {/* Cột 1: Sidebar (Danh sách cuộc trò chuyện) */}
@@ -353,6 +356,7 @@ export default function ChatPage() {
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
       {showKeyBackup && <KeyBackupModal onClose={() => setShowKeyBackup(false)} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       {/* Modal xem trước phòng khi mở link/QR mời */}
       {invitePreview && (

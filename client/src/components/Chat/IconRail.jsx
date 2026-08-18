@@ -1,6 +1,7 @@
-import { MessageCircle, Users, KeyRound, Palette, LogOut } from 'lucide-react';
+import { useState } from 'react';
+import { MessageCircle, Users, KeyRound, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import Modal from '../common/Modal';
 
 const NavIcon = ({ active, onClick, title, children }) => (
   <button
@@ -12,9 +13,9 @@ const NavIcon = ({ active, onClick, title, children }) => (
   </button>
 );
 
-export default function IconRail({ view, onSelectChat, onSelectFriends, onOpenProfile, onOpenKeyBackup }) {
+export default function IconRail({ view, onSelectChat, onSelectFriends, onOpenProfile, onOpenKeyBackup, onOpenSettings }) {
   const { user, logout } = useAuth();
-  const { theme, changeTheme, availableThemes } = useTheme();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   return (
     <div className="w-20 flex-shrink-0 flex flex-col items-center py-5 gap-3 bg-base-200 border-r border-base-300">
@@ -43,40 +44,36 @@ export default function IconRail({ view, onSelectChat, onSelectFriends, onOpenPr
       <NavIcon onClick={onOpenKeyBackup} title="Sao lưu & Khôi phục Khóa E2EE">
         <KeyRound className="w-5 h-5" />
       </NavIcon>
-
-      <div className="dropdown dropdown-right dropdown-bottom">
-        <button
-          tabIndex={0}
-          role="button"
-          className="btn btn-circle btn-lg btn-ghost text-base-content/60 hover:text-base-content"
-          title="Chọn giao diện"
-        >
-          <Palette className="w-5 h-5" />
-        </button>
-        <ul tabIndex={0} className="dropdown-content menu bg-base-100 rounded-box z-[60] w-52 p-2 shadow-lg border border-base-300 max-h-80 overflow-y-auto flex-nowrap">
-          {availableThemes.map(t => (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => changeTheme(t.id)}
-                className={theme === t.id ? 'active' : ''}
-              >
-                {t.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <NavIcon onClick={onOpenSettings} title="Cài đặt">
+        <Settings className="w-5 h-5" />
+      </NavIcon>
 
       <div className="flex-1" />
 
       <button
-        onClick={logout}
+        onClick={() => setShowLogoutConfirm(true)}
         className="btn btn-circle btn-lg btn-ghost text-error/70 hover:text-error hover:bg-error/10"
         title="Đăng xuất"
       >
         <LogOut className="w-5 h-5" />
       </button>
+
+      {showLogoutConfirm && (
+        <Modal onClose={() => setShowLogoutConfirm(false)} boxClassName="max-w-sm bg-base-100 border border-base-300 shadow-2xl">
+          <h3 className="text-base font-bold mb-2">Đăng xuất khỏi tài khoản?</h3>
+          <p className="text-xs text-base-content/60 mb-4">
+            Bạn sẽ cần đăng nhập lại để tiếp tục sử dụng.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button onClick={() => setShowLogoutConfirm(false)} className="btn btn-sm btn-ghost bg-base-200 rounded-full">
+              Hủy
+            </button>
+            <button onClick={logout} className="btn btn-sm bg-error text-white hover:bg-error/90 rounded-full">
+              Đăng xuất
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

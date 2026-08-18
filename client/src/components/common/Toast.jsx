@@ -12,12 +12,12 @@ export default function Toast({
   position = 'toast-top toast-center',
   z = 'z-[100]',
   variant = 'toast',
-  alertClassName = 'text-sm',
+  alertClassName,
 }) {
   if (variant === 'banner') {
     if (!message) return null;
     return (
-      <div className={`alert alert-${type} text-xs py-2 px-4 rounded-none`}>
+      <div className={`alert alert-${type} ${alertClassName || 'text-xs py-2 px-4 rounded-none'}`}>
         <span>{message}</span>
       </div>
     );
@@ -29,7 +29,7 @@ export default function Toast({
   return (
     <div className={`toast ${position} ${z}`}>
       {list.map(item => (
-        <div key={item.id} className={`alert alert-${item.type || type} ${alertClassName}`}>
+        <div key={item.id} className={`alert alert-${item.type || type} ${alertClassName || 'text-sm'}`}>
           <span>{item.text}</span>
         </div>
       ))}

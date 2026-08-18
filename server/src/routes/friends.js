@@ -5,6 +5,7 @@ const User       = require('../models/User');
 const Room       = require('../models/Room');
 const { protect } = require('../middleware/auth');
 const sendServerError = require('../utils/sendServerError');
+const userFields = require('../utils/publicUserFields');
 
 // GET /api/friends — lấy danh sách bạn bè
 router.get('/', protect, async (req, res) => {
@@ -13,8 +14,8 @@ router.get('/', protect, async (req, res) => {
       $or: [{ sender: req.user._id }, { receiver: req.user._id }],
       status: 'accepted',
     })
-      .populate('sender', 'username nickname avatar isOnline lastSeen')
-      .populate('receiver', 'username nickname avatar isOnline lastSeen');
+      .populate('sender', userFields.WITH_STATUS_LASTSEEN)
+      .populate('receiver', userFields.WITH_STATUS_LASTSEEN);
     res.json(friends);
   } catch (err) {
     sendServerError(res, err);
@@ -27,7 +28,7 @@ router.get('/requests', protect, async (req, res) => {
     const requests = await Friendship.find({
       receiver: req.user._id,
       status: 'pending',
-    }).populate('sender', 'username nickname avatar');
+    }).populate('sender', userFields.BASIC);
     res.json(requests);
   } catch (err) {
     sendServerError(res, err);
@@ -86,8 +87,8 @@ router.post('/request/:userId', protect, async (req, res) => {
         exists.receiver = receiverId;
         exists.status = 'pending';
         await exists.save();
-        await exists.populate('sender', 'username nickname avatar');
-        await exists.populate('receiver', 'username nickname avatar');
+        await exists.populate('sender', userFields.BASIC);
+        await exists.populate('receiver', userFields.BASIC);
         return res.status(200).json(exists);
       }
     }
@@ -97,8 +98,8 @@ router.post('/request/:userId', protect, async (req, res) => {
       receiver: receiverId,
     });
 
-    await friendship.populate('sender', 'username nickname avatar');
-    await friendship.populate('receiver', 'username nickname avatar');
+    await friendship.populate('sender', userFields.BASIC);
+    await friendship.populate('receiver', userFields.BASIC);
 
     res.status(201).json(friendship);
   } catch (err) {
@@ -136,15 +137,15 @@ router.put('/accept/:friendshipId', protect, async (req, res) => {
       });
     }
 
-    await friendship.populate('sender', 'username nickname avatar isOnline');
-    await friendship.populate('receiver', 'username nickname avatar isOnline');
+    await friendship.populate('sender', userFields.WITH_STATUS);
+    await friendship.populate('receiver', userFields.WITH_STATUS);
 
     // Phát sự kiện room:added cho cả hai người dùng đang online (Sửa lỗi Real-time DM room)
     const io = req.app.get('socketio');
     if (io) {
       const allSockets = await io.fetchSockets();
       const memberIds = [friendship.sender._id.toString(), friendship.receiver._id.toString()];
-      const populatedDmRoom = await Room.findById(dmRoom._id).populate('members', 'username nickname avatar isOnline');
+      const populatedDmRoom = await Room.findById(dmRoom._id).populate('members', userFields.WITH_STATUS);
       
       allSockets.forEach(s => {
         if (s.data.user && memberIds.includes(s.data.user._id.toString())) {
@@ -230,7 +231,7 @@ router.get('/dm/:userId', protect, async (req, res) => {
     const dmRoom = await Room.findOne({
       isDM: true,
       members: { $all: [req.user._id, req.params.userId] },
-    }).populate('members', 'username nickname avatar isOnline');
+    }).populate('members', userFields.WITH_STATUS);
 
     if (!dmRoom)
       return res.status(404).json({ message: 'Chưa có phòng DM' });
@@ -299,7 +300,7 @@ router.get('/profile/:userId', protect, async (req, res) => {
       ],
     })
       .select('name avatar members createdAt')
-      .populate('members', 'username nickname avatar isOnline lastSeen');
+      .populate('members', userFields.WITH_STATUS_LASTSEEN);
 
     const isFriendOrSelf = friendshipStatus === 'accepted' || friendshipStatus === 'self';
 

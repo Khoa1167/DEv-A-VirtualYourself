@@ -4,6 +4,8 @@ const Room       = require('../models/Room');
 const Friendship = require('../models/Friendship');
 const { encrypt, decrypt } = require('../utils/crypto');
 const { verifyJwt } = require('../utils/jwtKeys');
+const { checkRateWindow } = require('../utils/rateLimiter');
+const userFields = require('../utils/publicUserFields');
 
 
 const setupSocket = (io) => {
@@ -52,19 +54,10 @@ const setupSocket = (io) => {
       try {
         // Rate Limiting Check theo userId
         const uIdStr = userId.toString();
-        const now = Date.now();
-        const userLimit = userMessageRateMap.get(uIdStr) || { count: 0, resetTime: now + 5000 };
+        const msgLimit = checkRateWindow(userMessageRateMap, uIdStr, { maxCount: 8, windowMs: 5000 });
 
-        if (now > userLimit.resetTime) {
-          userLimit.count = 0;
-          userLimit.resetTime = now + 5000;
-        }
-
-        userLimit.count += 1;
-        userMessageRateMap.set(uIdStr, userLimit);
-
-        if (userLimit.count > 8) {
-          const retryAfter = Math.ceil((userLimit.resetTime - now) / 1000);
+        if (msgLimit.limited) {
+          const retryAfter = Math.ceil(msgLimit.retryAfterMs / 1000);
           return socket.emit('error', {
             message: `Bạn đang gửi tin nhắn quá nhanh. Vui lòng thử lại sau ${retryAfter} giây.`,
             code: 'RATE_LIMITED',
@@ -101,19 +94,19 @@ const setupSocket = (io) => {
           forwardedFrom: forwardedFrom || null,
         });
 
-        await msg.populate('sender', 'username nickname avatar');
+        await msg.populate('sender', userFields.BASIC);
         if (replyTo) {
           await msg.populate({
             path: 'replyTo',
             select: 'sender content type fileName isDeleted iv tag encryptedKeys',
-            populate: { path: 'sender', select: 'username nickname avatar' }
+            populate: { path: 'sender', select: userFields.BASIC }
           });
         }
         if (forwardedFrom) {
           await msg.populate({
             path: 'forwardedFrom',
             select: 'sender content iv tag encryptedKeys',
-            populate: { path: 'sender', select: 'username nickname' }
+            populate: { path: 'sender', select: userFields.MINIMAL }
           });
         }
         await Room.findByIdAndUpdate(roomId, { lastMessage: msg._id });
@@ -159,7 +152,7 @@ const setupSocket = (io) => {
         }
 
         await msg.save();
-        await msg.populate('reactions.users', 'username nickname');
+        await msg.populate('reactions.users', userFields.MINIMAL);
         io.to(msg.room.toString()).emit('message:reacted', {
           messageId, reactions: msg.reactions,
         });

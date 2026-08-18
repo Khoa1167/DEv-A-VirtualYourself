@@ -10,6 +10,7 @@ const multer = require('multer');
 const { cloudinary } = require('../config/cloudinary');
 const { Readable } = require('stream');
 const sendServerError = require('../utils/sendServerError');
+const userFields = require('../utils/publicUserFields');
 
 const hasEncryptedKeys = (encryptedKeys) => {
   if (!encryptedKeys) return false;
@@ -52,10 +53,10 @@ router.get('/', protect, async (req, res) => {
   try {
     const rooms = await Room.find({ members: req.user._id })
       .select('-inviteCode -inviteCodeExpiresAt -pendingRequests')
-      .populate('members', 'username nickname avatar isOnline')
+      .populate('members', userFields.WITH_STATUS)
       .populate({
         path: 'lastMessage',
-        populate: { path: 'sender', select: 'username nickname avatar' }
+        populate: { path: 'sender', select: userFields.BASIC }
       })
       .sort({ updatedAt: -1 });
 
@@ -91,7 +92,7 @@ router.post('/', protect, async (req, res) => {
       admins: [req.user._id],
       createdBy: req.user._id,
     });
-    await room.populate('members', 'username nickname avatar isOnline');
+    await room.populate('members', userFields.WITH_STATUS);
 
     // Phát sự kiện room:added cho tất cả thành viên trong phòng đang online
     const io = req.app.get('socketio');
@@ -117,10 +118,10 @@ router.get('/all', protect, async (req, res) => {
   try {
     const rooms = await Room.find({ isPrivate: false })
       .select('-inviteCode -inviteCodeExpiresAt -pendingRequests')
-      .populate('members', 'username nickname avatar isOnline')
+      .populate('members', userFields.WITH_STATUS)
       .populate({
         path: 'lastMessage',
-        populate: { path: 'sender', select: 'username nickname avatar' }
+        populate: { path: 'sender', select: userFields.BASIC }
       })
       .sort({ updatedAt: -1 });
 
@@ -159,10 +160,10 @@ router.get('/:id/messages', protect, async (req, res) => {
       room: req.params.id,
       isDeleted: false
     })
-      .populate('sender', 'username nickname avatar') // Sửa lỗi hiển thị Nickname
-      .populate({ path: 'replyTo', select: 'sender content type fileName isDeleted iv tag encryptedKey', populate: { path: 'sender', select: 'username nickname avatar' } })
-      .populate({ path: 'forwardedFrom', select: 'sender content iv tag encryptedKey', populate: { path: 'sender', select: 'username nickname' } })
-      .populate('reactions.users', 'username nickname')
+      .populate('sender', userFields.BASIC) // Sửa lỗi hiển thị Nickname
+      .populate({ path: 'replyTo', select: 'sender content type fileName isDeleted iv tag encryptedKey', populate: { path: 'sender', select: userFields.BASIC } })
+      .populate({ path: 'forwardedFrom', select: 'sender content iv tag encryptedKey', populate: { path: 'sender', select: userFields.MINIMAL } })
+      .populate('reactions.users', userFields.MINIMAL)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
@@ -255,7 +256,7 @@ router.post('/:id/join', protect, async (req, res) => {
     const { status } = await addMemberOrRequest(room, req.user, req.app.get('socketio'));
     if (status === 'pending') return res.json({ status: 'pending' });
 
-    await room.populate('members', 'username nickname avatar isOnline');
+    await room.populate('members', userFields.WITH_STATUS);
     res.json(room);
   } catch (err) {
     sendServerError(res, err);
@@ -302,7 +303,7 @@ router.post('/invite/:inviteCode', protect, async (req, res) => {
     const { status } = await addMemberOrRequest(room, req.user, req.app.get('socketio'));
     if (status === 'pending') return res.json({ status: 'pending' });
 
-    await room.populate('members', 'username nickname avatar isOnline');
+    await room.populate('members', userFields.WITH_STATUS);
     res.json(room);
   } catch (err) {
     sendServerError(res, err);
@@ -387,7 +388,7 @@ router.get('/:id/join-requests', protect, async (req, res) => {
       return res.status(403).json({ message: 'Chỉ quản trị viên nhóm mới xem được yêu cầu tham gia' });
     }
 
-    await room.populate('pendingRequests', 'username nickname avatar');
+    await room.populate('pendingRequests', userFields.BASIC);
     res.json(room.pendingRequests);
   } catch (err) {
     sendServerError(res, err);
@@ -408,7 +409,7 @@ router.put('/:id/join-requests/:userId', protect, async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy yêu cầu tham gia này' });
     }
 
-    const requester = await User.findById(req.params.userId).select('username nickname avatar');
+    const requester = await User.findById(req.params.userId).select(userFields.BASIC);
     if (!requester) return res.status(404).json({ message: 'Người dùng không tồn tại' });
 
     room.pendingRequests = room.pendingRequests.filter(p => p.toString() !== req.params.userId);

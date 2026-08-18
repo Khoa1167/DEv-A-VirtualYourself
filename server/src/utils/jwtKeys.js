@@ -35,11 +35,15 @@ const { keyRing, currentKid } = buildKeyRing();
 const signJwt = (payload, options = {}) =>
   jwt.sign(payload, keyRing.get(currentKid), { ...options, keyid: currentKid });
 
+// Chỉ chấp nhận thuật toán ký đối xứng đang dùng — chặn algorithm confusion attack
+// (vd token tự ký alg khác rồi kỳ vọng verify() suy luận sai thuật toán).
+const ALLOWED_ALGORITHMS = ['HS256'];
+
 const verifyJwt = (token) => {
   const kid = jwt.decode(token, { complete: true })?.header?.kid;
 
   if (kid && keyRing.has(kid)) {
-    return jwt.verify(token, keyRing.get(kid));
+    return jwt.verify(token, keyRing.get(kid), { algorithms: ALLOWED_ALGORITHMS });
   }
 
   // Token ký từ trước khi có kid (hoặc kid lạ) — thử lần lượt các secret đang có hiệu lực.
@@ -47,7 +51,7 @@ const verifyJwt = (token) => {
   let lastErr;
   for (const secret of keyRing.values()) {
     try {
-      return jwt.verify(token, secret);
+      return jwt.verify(token, secret, { algorithms: ALLOWED_ALGORITHMS });
     } catch (err) {
       lastErr = err;
     }

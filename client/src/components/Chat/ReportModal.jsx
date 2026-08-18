@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import Modal from '../common/Modal';
+import Toast from '../common/Toast';
 import api from '../../services/api';
+import useTimedMessage from '../../hooks/useTimedMessage';
 
 export default function ReportModal({ message, onClose, onSuccess }) {
   const [reason, setReason] = useState('spam');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, showError] = useTimedMessage();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    showError('');
     setLoading(true);
 
     try {
@@ -36,7 +38,7 @@ export default function ReportModal({ message, onClose, onSuccess }) {
       }
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || 'Gửi báo cáo thất bại');
+      showError(err.response?.data?.message || 'Gửi báo cáo thất bại');
     } finally {
       setLoading(false);
     }
@@ -78,11 +80,7 @@ export default function ReportModal({ message, onClose, onSuccess }) {
             </select>
           </div>
 
-          {error && (
-            <div className="alert alert-error py-2 px-3 text-xs font-semibold rounded-lg">
-              <span>{error}</span>
-            </div>
-          )}
+          <Toast message={error} type="error" variant="banner" alertClassName="py-2 px-3 text-xs font-semibold rounded-lg" />
 
           <div className="flex items-center justify-end gap-2 mt-2">
             <button

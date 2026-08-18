@@ -15,7 +15,7 @@ const {
 } = require('../config/mailer');
 const { uploadAvatar, uploadCover, deleteCloudinaryImage } = require('../config/cloudinary');
 const sendServerError = require('../utils/sendServerError');
-const { checkLock, recordFailure, clearFailures } = require('../utils/rateLimiter');
+const { checkLock, recordFailure, clearFailures, checkRateWindow } = require('../utils/rateLimiter');
 const { verifyTurnstile } = require('../utils/turnstile');
 const { signJwt, verifyJwt } = require('../utils/jwtKeys');
 
@@ -876,14 +876,11 @@ router.put('/devices', protect, async (req, res) => {
             return res.status(400).json({ message: 'Tài khoản đã đạt giới hạn 5 thiết bị đang hoạt động. Vui lòng gỡ bớt thiết bị cũ.' });
           }
 
-          const mutEntry = mutationRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
-          if (now > mutEntry.resetTime) { mutEntry.count = 0; mutEntry.resetTime = now + 3600000; }
-          if (mutEntry.count >= 3) {
+          const mutLimit = checkRateWindow(mutationRateLimitMap, userId, { maxCount: 3, windowMs: 3600000 });
+          if (mutLimit.limited) {
             if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
             return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
           }
-          mutEntry.count += 1;
-          mutationRateLimitMap.set(userId, mutEntry);
 
           user.devices.push({
             deviceId,
@@ -898,14 +895,11 @@ router.put('/devices', protect, async (req, res) => {
           shouldEmitThisTry = true;
         } else if (existingDevice.isRevoked) {
           // Nhánh 2: Device tồn tại và isRevoked === true (Reactivation)
-          const mutEntry = mutationRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
-          if (now > mutEntry.resetTime) { mutEntry.count = 0; mutEntry.resetTime = now + 3600000; }
-          if (mutEntry.count >= 3) {
+          const mutLimit = checkRateWindow(mutationRateLimitMap, userId, { maxCount: 3, windowMs: 3600000 });
+          if (mutLimit.limited) {
             if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
             return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
           }
-          mutEntry.count += 1;
-          mutationRateLimitMap.set(userId, mutEntry);
 
           existingDevice.isRevoked = false;
           existingDevice.revokedAt = null;
@@ -919,14 +913,11 @@ router.put('/devices', protect, async (req, res) => {
           // Nhánh 3: Device tồn tại và isRevoked === false (Active Device)
           if (existingDevice.publicKey === publicKey) {
             // Case 3a: Gia hạn token 7d bình thường (publicKey không đổi)
-            const renewEntry = renewalRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
-            if (now > renewEntry.resetTime) { renewEntry.count = 0; renewEntry.resetTime = now + 3600000; }
-            if (renewEntry.count >= 30) {
+            const renewLimit = checkRateWindow(renewalRateLimitMap, userId, { maxCount: 30, windowMs: 3600000 });
+            if (renewLimit.limited) {
               if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
               return res.status(429).json({ message: 'Quá nhiều yêu cầu gia hạn thiết bị. Thử lại sau.' });
             }
-            renewEntry.count += 1;
-            renewalRateLimitMap.set(userId, renewEntry);
 
             existingDevice.lastActiveAt = new Date();
             if (deviceName) existingDevice.deviceName = deviceName;
@@ -934,14 +925,11 @@ router.put('/devices', protect, async (req, res) => {
             shouldEmitThisTry = false;
           } else {
             // Case 3b: Key Rotation / Mất Storage (publicKey khác cũ)
-            const mutEntry = mutationRateLimitMap.get(userId) || { count: 0, resetTime: now + 3600000 };
-            if (now > mutEntry.resetTime) { mutEntry.count = 0; mutEntry.resetTime = now + 3600000; }
-            if (mutEntry.count >= 3) {
+            const mutLimit = checkRateWindow(mutationRateLimitMap, userId, { maxCount: 3, windowMs: 3600000 });
+            if (mutLimit.limited) {
               if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
               return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
             }
-            mutEntry.count += 1;
-            mutationRateLimitMap.set(userId, mutEntry);
 
             existingDevice.publicKey = publicKey;
             if (deviceName) existingDevice.deviceName = deviceName;

@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const https = require('https');
 const { protect } = require('../middleware/auth');
+const { checkRateWindow } = require('../utils/rateLimiter');
 
 // Simple Rate Limit map cho API check-link (tối đa 30 requests/phút/user)
 const rateLimitMap = new Map();
@@ -14,18 +15,8 @@ router.post('/check-link', protect, async (req, res) => {
     }
 
     const userId = req.user._id.toString();
-    const now = Date.now();
-    const userLimit = rateLimitMap.get(userId) || { count: 0, resetTime: now + 60000 };
-
-    if (now > userLimit.resetTime) {
-      userLimit.count = 0;
-      userLimit.resetTime = now + 60000;
-    }
-
-    userLimit.count += 1;
-    rateLimitMap.set(userId, userLimit);
-
-    if (userLimit.count > 30) {
+    const limit = checkRateWindow(rateLimitMap, userId, { maxCount: 30, windowMs: 60000 });
+    if (limit.limited) {
       return res.status(429).json({ safe: true, warning: 'Rate limit exceeded' });
     }
 

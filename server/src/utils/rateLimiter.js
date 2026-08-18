@@ -33,4 +33,24 @@ function clearFailures(map, key) {
   map.delete(key);
 }
 
-module.exports = { checkLock, recordFailure, clearFailures };
+// Rate-limit kiểu "tối đa N request / cửa sổ thời gian trượt, tự reset khi hết cửa sổ" —
+// khác checkLock/recordFailure ở trên (đó là "sai N lần liên tiếp → khóa X phút cho tới khi
+// hết hạn"). Dùng cho giới hạn tần suất gọi API/socket event thông thường, không phải khóa
+// sau xác thực sai. Check + tăng đếm gộp làm 1 lần gọi vì mọi nơi dùng đều gọi theo cặp.
+function checkRateWindow(map, key, { maxCount, windowMs }) {
+  const now = Date.now();
+  const entry = map.get(key) || { count: 0, resetTime: now + windowMs };
+  if (now > entry.resetTime) {
+    entry.count = 0;
+    entry.resetTime = now + windowMs;
+  }
+  if (entry.count >= maxCount) {
+    map.set(key, entry);
+    return { limited: true, retryAfterMs: entry.resetTime - now };
+  }
+  entry.count += 1;
+  map.set(key, entry);
+  return { limited: false };
+}
+
+module.exports = { checkLock, recordFailure, clearFailures, checkRateWindow };

@@ -2,6 +2,7 @@ const router     = require('express').Router();
 const User       = require('../models/User');
 const { protect } = require('../middleware/auth');
 const sendServerError = require('../utils/sendServerError');
+const { checkRateWindow } = require('../utils/rateLimiter');
 
 const getDevicesRateLimitMap = new Map();
 
@@ -9,15 +10,10 @@ const getDevicesRateLimitMap = new Map();
 router.get('/:userId/devices', protect, async (req, res) => {
   try {
     const callerId = req.user._id.toString();
-    const now = Date.now();
 
     // Rate limit 60 req/phút/user
-    const limitEntry = getDevicesRateLimitMap.get(callerId) || { count: 0, resetTime: now + 60000 };
-    if (now > limitEntry.resetTime) { limitEntry.count = 0; limitEntry.resetTime = now + 60000; }
-    limitEntry.count += 1;
-    getDevicesRateLimitMap.set(callerId, limitEntry);
-
-    if (limitEntry.count > 60) {
+    const limit = checkRateWindow(getDevicesRateLimitMap, callerId, { maxCount: 60, windowMs: 60000 });
+    if (limit.limited) {
       return res.status(429).json({ message: 'Quá nhiều yêu cầu truy vấn thiết bị' });
     }
 

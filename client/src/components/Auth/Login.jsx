@@ -3,12 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ForgotPasswordModal from './ForgotPasswordModal';
 import Turnstile from '../common/Turnstile';
+import Toast from '../common/Toast';
+import useTimedMessage from '../../hooks/useTimedMessage';
 
 const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 export default function Login() {
   const [form, setForm]               = useState({ username: '', password: '' });
-  const [error, setError]             = useState('');
+  const [error, showError]            = useTimedMessage();
   const [loading, setLoading]         = useState(false);
   const [isForgotOpen, setIsForgotOpen] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
@@ -19,13 +21,13 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    showError('');
     setLoading(true);
     try {
       await login(form.username, form.password, turnstileToken);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.message || 'Đăng nhập thất bại');
+      showError(err.response?.data?.message || 'Đăng nhập thất bại');
     } finally {
       setLoading(false);
       setTurnstileResetKey(k => k + 1);
@@ -38,11 +40,7 @@ export default function Login() {
         <div className="card-body p-8">
           <h1 className="text-3xl font-bold text-center text-primary mb-6">Đăng nhập</h1>
           
-          {error && (
-            <div className="alert alert-error shadow-sm py-3 mb-4 rounded-lg">
-              <span className="text-sm font-medium">{error}</span>
-            </div>
-          )}
+          <Toast message={error} type="error" variant="banner" alertClassName="shadow-sm py-3 mb-4 rounded-lg text-sm font-medium" />
           
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="form-control">
