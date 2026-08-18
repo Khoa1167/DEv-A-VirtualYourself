@@ -8,7 +8,10 @@ export default function useAvailabilityCheck(value, { checkFn, minLength = 2, de
   const [status, setStatus] = useState('');
   const isMountedRef = useRef(true);
 
-  useEffect(() => () => { isMountedRef.current = false; }, []);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (value === skipValue || value.trim().length < minLength) {
