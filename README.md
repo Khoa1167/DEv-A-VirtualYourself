@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Chat App
 
 Hướng dẫn cài đặt và chạy dự án (client React/Vite + server Express/Socket.IO/MongoDB).
