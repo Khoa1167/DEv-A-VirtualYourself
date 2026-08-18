@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Chat App
 
 Hướng dẫn cài đặt và chạy dự án (client React/Vite + server Express/Socket.IO/MongoDB).
@@ -79,3 +78,4 @@ cd client && npm run dev     # http://localhost:5173
 cd server
 node src/scripts/set-admin.js <email_hoặc_username>
 ```
+
