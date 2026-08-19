@@ -20,6 +20,9 @@ const roomSchema = new mongoose.Schema({
   // 'open': join ngay (browse-list hoặc link mời). 'approval': vào hàng chờ, chủ phòng/admin duyệt.
   joinPolicy:      { type: String, enum: ['open', 'approval'], default: 'open' },
   pendingRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  // Lời mời đích danh do admin/chủ phòng gửi qua "Thêm thành viên" — người được mời tự
+  // accept/decline, khác pendingRequests (người ngoài tự xin vào, admin duyệt).
+  pendingInvites:  [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   lastMessage: { type: mongoose.Schema.Types.ObjectId, ref: 'Message' },
   // Epoch hiện tại của Sender Key mã hóa nhóm — tăng lên khi rotate khóa (server/src/routes/rooms.js PUT /:id/rotate-key)

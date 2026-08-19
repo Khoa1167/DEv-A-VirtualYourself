@@ -45,6 +45,9 @@ export default function ChatPage() {
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const targetUserIdRef = useRef(null);
+  // ICE candidate đến từ bên gọi trong lúc bên nhận còn đang đổ chuông (chưa bấm Trả lời nên
+  // pcRef.current vẫn null) — xếp hàng chờ, nạp lại ngay khi RTCPeerConnection được tạo.
+  const pendingIceRef = useRef([]);
 
   const configuration = {
     iceServers: [
@@ -70,6 +73,14 @@ export default function ChatPage() {
     };
 
     pcRef.current = pc;
+
+    if (pendingIceRef.current.length) {
+      pendingIceRef.current.forEach(candidate => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('Lỗi khi nạp ICE Candidate:', e));
+      });
+      pendingIceRef.current = [];
+    }
+
     return pc;
   };
 
@@ -194,6 +205,7 @@ export default function ChatPage() {
       pcRef.current = null;
     }
     targetUserIdRef.current = null;
+    pendingIceRef.current = [];
   };
 
   // Điều khiển track Mic/Camera
@@ -245,6 +257,8 @@ export default function ChatPage() {
         } catch (e) {
           console.error('Lỗi khi nạp ICE Candidate:', e);
         }
+      } else {
+        pendingIceRef.current.push(candidate);
       }
     });
 

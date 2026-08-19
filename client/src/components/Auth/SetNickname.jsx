@@ -55,7 +55,7 @@ export default function SetNickname() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base-200 px-4">
+    <div data-theme="aurora" className="min-h-screen flex items-center justify-center bg-base-200 px-4">
       <div className="card w-full max-w-md bg-base-100 shadow-2xl border border-base-300/50">
         <div className="card-body p-8">
           <h1 className="text-3xl font-bold text-center text-primary mb-2">Biệt danh</h1>

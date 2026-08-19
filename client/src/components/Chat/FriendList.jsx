@@ -12,6 +12,7 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
   const { on, emit }            = useSocket(token);
   const [friends, setFriends]   = useState([]);
   const [requests, setRequests] = useState([]);
+  const [groupInvites, setGroupInvites] = useState([]);
   const [searchQ, setSearchQ]   = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [activeTab, setActiveTab] = useState('friends');
@@ -22,6 +23,7 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
   useEffect(() => {
     api.get('/friends').then(res => setFriends(res.data));
     api.get('/friends/requests').then(res => setRequests(res.data));
+    api.get('/rooms/invites/mine').then(res => setGroupInvites(res.data));
   }, []);
 
   // Lắng nghe lời mời kết bạn realtime
@@ -29,6 +31,14 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
     const off = on('friend:request_received', (friendship) => {
       // friendship là object đầy đủ từ server, có _id và sender
       setRequests(prev => [...prev, friendship]);
+    });
+    return off;
+  }, [on]);
+
+  // Lắng nghe lời mời vào nhóm realtime (admin bấm "Thêm thành viên")
+  useEffect(() => {
+    const off = on('room:invite_received', ({ roomId, roomName }) => {
+      setGroupInvites(prev => prev.some(r => r._id === roomId) ? prev : [...prev, { _id: roomId, name: roomName }]);
     });
     return off;
   }, [on]);
@@ -88,6 +98,18 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
     }
   };
 
+  // Hủy lời mời đã gửi (tái sử dụng endpoint /friends/cancel đã có, dùng trong OtherUserProfileModal)
+  const cancelRequest = async (userId) => {
+    showActionError('');
+    try {
+      await api.delete(`/friends/cancel/${userId}`);
+      setSearchResults(prev => prev.map(u => u._id === userId ? { ...u, requested: false } : u));
+      showActionSuccess('Đã hủy lời mời kết bạn');
+    } catch (err) {
+      showActionError(err.response?.data?.message || 'Lỗi hủy lời mời');
+    }
+  };
+
   // Chấp nhận lời mời
   const acceptRequest = async (friendship) => {
     showActionError('');
@@ -110,6 +132,30 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
       await api.put(`/friends/reject/${friendshipId}`);
       setRequests(prev => prev.filter(r => r._id !== friendshipId));
       showActionSuccess('Đã từ chối lời mời kết bạn');
+    } catch (err) {
+      showActionError(err.response?.data?.message || 'Lỗi từ chối lời mời');
+    }
+  };
+
+  // Chấp nhận lời mời vào nhóm (được admin thêm qua "Thêm thành viên")
+  const acceptGroupInvite = async (roomId) => {
+    showActionError('');
+    try {
+      await api.put(`/rooms/${roomId}/invites/accept`);
+      setGroupInvites(prev => prev.filter(r => r._id !== roomId));
+      showActionSuccess('Đã tham gia nhóm');
+    } catch (err) {
+      showActionError(err.response?.data?.message || 'Lỗi tham gia nhóm');
+    }
+  };
+
+  // Từ chối lời mời vào nhóm
+  const declineGroupInvite = async (roomId) => {
+    showActionError('');
+    try {
+      await api.delete(`/rooms/${roomId}/invites/decline`);
+      setGroupInvites(prev => prev.filter(r => r._id !== roomId));
+      showActionSuccess('Đã từ chối lời mời vào nhóm');
     } catch (err) {
       showActionError(err.response?.data?.message || 'Lỗi từ chối lời mời');
     }
@@ -150,6 +196,13 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
             onClick={() => setActiveTab('requests')}
           >
             Lời mời kết bạn {requests.length > 0 && `(${requests.length})`}
+          </button>
+          <button
+            role="tab"
+            className={`tab ${activeTab === 'groupInvites' ? 'tab-active' : ''}`}
+            onClick={() => setActiveTab('groupInvites')}
+          >
+            Lời mời vào nhóm {groupInvites.length > 0 && `(${groupInvites.length})`}
           </button>
           <button
             role="tab"
@@ -262,6 +315,37 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
         </div>
       )}
 
+      {/* Tab: Lời mời vào nhóm */}
+      {activeTab === 'groupInvites' && (
+        <div className="flex-1 overflow-y-auto hide-scrollbar p-6 flex flex-col gap-2">
+          <h4 className="text-xs font-bold text-base-content/50 uppercase tracking-wider mb-2 px-1">
+            Lời mời vào nhóm ({groupInvites.length})
+          </h4>
+          {groupInvites.length === 0 && (
+            <p className="text-sm text-center text-base-content/40 py-12 italic">Không có lời mời vào nhóm nào</p>
+          )}
+          {groupInvites.map(r => (
+            <div key={r._id} className="flex items-center justify-between p-3 rounded-xl hover:bg-base-200 border-b border-base-200 transition-all duration-150 group">
+              <div className="flex items-center gap-3">
+                <div className="avatar placeholder">
+                  <div className="w-10 rounded-full bg-base-200 text-base-content ring-1 ring-transparent">
+                    <span className="font-bold">{(r.name || '?')[0].toUpperCase()}</span>
+                  </div>
+                </div>
+                <div className="flex flex-col min-w-0 leading-tight">
+                  <span className="text-sm font-bold truncate">{r.name || 'Nhóm chat'}</span>
+                  <span className="text-xs text-base-content/50 truncate">Mời bạn tham gia nhóm</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button className="btn btn-sm btn-success rounded-full text-white font-bold" onClick={() => acceptGroupInvite(r._id)}>Đồng ý</button>
+                <button className="btn btn-sm btn-error rounded-full text-white font-bold" onClick={() => declineGroupInvite(r._id)}>Từ chối</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Tab: Tìm bạn / Thêm bạn */}
       {activeTab === 'search' && (
         <div className="flex-1 overflow-y-auto hide-scrollbar p-6 flex flex-col gap-4">
@@ -312,13 +396,12 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
                   <button
                     className={`btn btn-sm rounded-full font-bold ${
                       userItem.requested
-                        ? 'btn-disabled bg-base-200 text-base-content/40'
+                        ? 'bg-warning/10 hover:bg-warning/20 text-warning border-warning/30'
                         : 'btn-primary text-white'
                     }`}
-                    onClick={() => sendRequest(userItem._id)}
-                    disabled={userItem.requested}
+                    onClick={() => userItem.requested ? cancelRequest(userItem._id) : sendRequest(userItem._id)}
                   >
-                    {userItem.requested ? 'Đã gửi yêu cầu' : 'Kết bạn'}
+                    {userItem.requested ? 'Đã gửi (Bấm để hủy)' : 'Kết bạn'}
                   </button>
                 </div>
               </div>

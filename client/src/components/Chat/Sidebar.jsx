@@ -192,7 +192,7 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
         isPrivate: !newRoomIsPublic,
         joinPolicy: newRoomNeedsApproval ? 'approval' : 'open',
       });
-      setRooms(prev => [data, ...prev]);
+      setRooms(prev => prev.find(r => r._id === data._id) ? prev : [data, ...prev]);
       setNewRoomName('');
       setNewRoomIsPublic(false);
       setNewRoomNeedsApproval(false);

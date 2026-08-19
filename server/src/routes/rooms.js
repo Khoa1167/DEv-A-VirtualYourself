@@ -2,6 +2,7 @@ const router  = require('express').Router();
 const crypto  = require('crypto');
 const Room    = require('../models/Room');
 const User    = require('../models/User');
+const Friendship = require('../models/Friendship');
 const Message = require('../models/Message');
 const SenderKeyDistribution = require('../models/SenderKeyDistribution');
 const { protect } = require('../middleware/auth');
@@ -52,7 +53,7 @@ const uploadFile = multer({
 router.get('/', protect, async (req, res) => {
   try {
     const rooms = await Room.find({ members: req.user._id })
-      .select('-inviteCode -inviteCodeExpiresAt -pendingRequests')
+      .select('-inviteCode -inviteCodeExpiresAt -pendingRequests -pendingInvites')
       .populate('members', userFields.WITH_STATUS)
       .populate({
         path: 'lastMessage',
@@ -117,7 +118,7 @@ router.post('/', protect, async (req, res) => {
 router.get('/all', protect, async (req, res) => {
   try {
     const rooms = await Room.find({ isPrivate: false })
-      .select('-inviteCode -inviteCodeExpiresAt -pendingRequests')
+      .select('-inviteCode -inviteCodeExpiresAt -pendingRequests -pendingInvites')
       .populate('members', userFields.WITH_STATUS)
       .populate({
         path: 'lastMessage',
@@ -415,12 +416,22 @@ router.put('/:id/join-requests/:userId', protect, async (req, res) => {
     room.pendingRequests = room.pendingRequests.filter(p => p.toString() !== req.params.userId);
     room.members.push(requester._id);
     await room.save();
+    await room.populate('members', userFields.WITH_STATUS);
 
     const io = req.app.get('socketio');
     if (io) {
       io.to(room._id.toString()).emit('room:member_joined', {
         roomId: room._id.toString(),
         member: { _id: requester._id.toString(), username: requester.username, nickname: requester.nickname, avatar: requester.avatar, isOnline: true },
+      });
+
+      // Báo riêng cho người vừa được duyệt — họ chưa join socket room nên không nhận được sự kiện trên
+      const allSockets = await io.fetchSockets();
+      allSockets.forEach(s => {
+        if (s.data.user && s.data.user._id.toString() === requester._id.toString()) {
+          s.join(room._id.toString());
+          s.emit('room:added', room);
+        }
       });
     }
 
@@ -453,6 +464,123 @@ router.delete('/:id/join-requests/:userId', protect, async (req, res) => {
     }
 
     res.json({ message: 'Đã từ chối yêu cầu tham gia' });
+  } catch (err) {
+    sendServerError(res, err);
+  }
+});
+
+// ─── Thêm thành viên trực tiếp (đích danh, cần người được mời tự xác nhận) ──
+
+// POST /api/rooms/:id/invites/:userId — admin/chủ phòng thêm thẳng 1 người bạn vào nhóm
+router.post('/:id/invites/:userId', protect, async (req, res) => {
+  try {
+    const room = await requireMembership(req, res, req.params.id);
+    if (!room) return;
+    if (room.isDM) return res.status(400).json({ message: 'Không thể thêm thành viên vào phòng DM' });
+
+    const isOwner = room.createdBy.toString() === req.user._id.toString();
+    const isAdmin = room.admins.some(a => a.toString() === req.user._id.toString());
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ message: 'Chỉ quản trị viên nhóm mới có thể thêm thành viên' });
+    }
+
+    const targetId = req.params.userId;
+    if (room.members.some(m => m.toString() === targetId)) {
+      return res.status(400).json({ message: 'Người này đã là thành viên' });
+    }
+    if (room.pendingInvites.some(p => p.toString() === targetId)) {
+      return res.status(400).json({ message: 'Đã gửi lời mời cho người này rồi' });
+    }
+
+    // Chỉ cho thêm bạn bè — không cho mời thẳng người lạ vào nhóm
+    const isFriend = await Friendship.findOne({
+      $or: [
+        { sender: req.user._id, receiver: targetId },
+        { sender: targetId, receiver: req.user._id },
+      ],
+      status: 'accepted',
+    });
+    if (!isFriend) {
+      return res.status(400).json({ message: 'Chỉ có thể thêm bạn bè vào nhóm' });
+    }
+
+    const target = await User.findById(targetId).select(userFields.BASIC);
+    if (!target) return res.status(404).json({ message: 'Người dùng không tồn tại' });
+
+    room.pendingInvites.push(targetId);
+    await room.save();
+
+    const io = req.app.get('socketio');
+    if (io) {
+      const allSockets = await io.fetchSockets();
+      allSockets
+        .filter(s => s.data.user && s.data.user._id.toString() === targetId)
+        .forEach(s => s.emit('room:invite_received', {
+          roomId: room._id.toString(),
+          roomName: room.name,
+          invitedBy: { _id: req.user._id, nickname: req.user.nickname, username: req.user.username },
+        }));
+    }
+
+    res.status(201).json({ message: 'Đã gửi lời mời' });
+  } catch (err) {
+    sendServerError(res, err);
+  }
+});
+
+// GET /api/rooms/invites/mine — danh sách lời mời vào nhóm đang chờ mình xác nhận
+router.get('/invites/mine', protect, async (req, res) => {
+  try {
+    const rooms = await Room.find({ pendingInvites: req.user._id }).select('name isPrivate');
+    res.json(rooms);
+  } catch (err) {
+    sendServerError(res, err);
+  }
+});
+
+// PUT /api/rooms/:id/invites/accept — tự chấp nhận lời mời vào nhóm
+router.put('/:id/invites/accept', protect, async (req, res) => {
+  try {
+    const room = await Room.findById(req.params.id);
+    if (!room) return res.status(404).json({ message: 'Phòng không tồn tại' });
+    if (!room.pendingInvites.some(p => p.toString() === req.user._id.toString())) {
+      return res.status(404).json({ message: 'Không tìm thấy lời mời này' });
+    }
+
+    room.pendingInvites = room.pendingInvites.filter(p => p.toString() !== req.user._id.toString());
+    room.members.push(req.user._id);
+    await room.save();
+    await room.populate('members', userFields.WITH_STATUS);
+
+    const io = req.app.get('socketio');
+    if (io) {
+      io.to(room._id.toString()).emit('room:member_joined', {
+        roomId: room._id.toString(),
+        member: { _id: req.user._id.toString(), username: req.user.username, nickname: req.user.nickname, avatar: req.user.avatar, isOnline: true },
+      });
+
+      const allSockets = await io.fetchSockets();
+      allSockets
+        .filter(s => s.data.user && s.data.user._id.toString() === req.user._id.toString())
+        .forEach(s => { s.join(room._id.toString()); s.emit('room:added', room); });
+    }
+
+    res.json({ message: 'Đã tham gia nhóm', room });
+  } catch (err) {
+    sendServerError(res, err);
+  }
+});
+
+// DELETE /api/rooms/:id/invites/decline — tự từ chối lời mời vào nhóm
+router.delete('/:id/invites/decline', protect, async (req, res) => {
+  try {
+    const room = await Room.findById(req.params.id);
+    if (!room) return res.status(404).json({ message: 'Phòng không tồn tại' });
+
+    room.pendingInvites = room.pendingInvites.filter(p => p.toString() !== req.user._id.toString());
+    await room.save();
+
+    res.json({ message: 'Đã từ chối lời mời' });
   } catch (err) {
     sendServerError(res, err);
   }
@@ -564,7 +692,7 @@ const broadcastRoomUpdated = (room, io) => {
 // Nếu members rỗng sau khi bỏ thì xóa luôn Room. Bất biến cần giữ: createdBy (chủ phòng) luôn
 // nằm trong admins. Nếu người rời/bị kick chính là chủ phòng, kế vị: admin phụ còn lại đầu tiên
 // lên làm chủ phòng mới; không còn admin phụ nào thì thành viên đầu tiên còn lại lên làm chủ.
-const removeMemberFromRoom = async (room, userId, io) => {
+const removeMemberFromRoom = async (room, userId, io, preferredNewOwnerId) => {
   const uidStr = userId.toString();
   const remainingMembers = room.members.filter(m => m.toString() !== uidStr);
 
@@ -577,7 +705,7 @@ const removeMemberFromRoom = async (room, userId, io) => {
   room.admins = room.admins.filter(a => a.toString() !== uidStr);
 
   if (room.createdBy.toString() === uidStr) {
-    const newOwner = room.admins[0] || remainingMembers[0];
+    const newOwner = preferredNewOwnerId || room.admins[0] || remainingMembers[0];
     room.createdBy = newOwner;
     if (!room.admins.some(a => a.toString() === newOwner.toString())) {
       room.admins.push(newOwner);
@@ -615,7 +743,22 @@ router.post('/:id/leave', protect, async (req, res) => {
       return res.status(400).json({ message: 'Không thể rời cuộc trò chuyện riêng tư — hãy dùng hủy kết bạn.' });
     }
 
-    await removeMemberFromRoom(room, req.user._id, req.app.get('socketio'));
+    // Chủ phòng có thể tự chọn người kế nhiệm trước khi rời — bỏ trống thì tự động gán như cũ
+    const { newOwnerId } = req.body;
+    if (newOwnerId) {
+      const isOwner = room.createdBy.toString() === req.user._id.toString();
+      if (!isOwner) {
+        return res.status(403).json({ message: 'Chỉ chủ phòng mới có thể chỉ định người kế nhiệm' });
+      }
+      if (newOwnerId === req.user._id.toString()) {
+        return res.status(400).json({ message: 'Không thể chuyển quyền cho chính mình' });
+      }
+      if (!room.members.some(m => m.toString() === newOwnerId)) {
+        return res.status(400).json({ message: 'Người được chọn phải là thành viên trong nhóm' });
+      }
+    }
+
+    await removeMemberFromRoom(room, req.user._id, req.app.get('socketio'), newOwnerId);
     res.json({ message: 'Đã rời khỏi nhóm' });
   } catch (err) {
     sendServerError(res, err);

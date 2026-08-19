@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import ForgotPasswordModal from './ForgotPasswordModal';
 import Turnstile from '../common/Turnstile';
@@ -18,6 +18,7 @@ export default function Login() {
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const { login }                     = useAuth();
   const navigate                      = useNavigate();
+  const location                      = useLocation();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,7 +26,8 @@ export default function Login() {
     setLoading(true);
     try {
       await login(form.username, form.password, turnstileToken);
-      navigate('/');
+      const from = location.state?.from;
+      navigate(from ? `${from.pathname}${from.search}` : '/');
     } catch (err) {
       showError(err.response?.data?.message || 'Đăng nhập thất bại');
     } finally {
@@ -35,7 +37,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base-200 px-4">
+    <div data-theme="aurora" className="min-h-screen flex items-center justify-center bg-base-200 px-4">
       <div className="card w-full max-w-md bg-base-100 shadow-2xl border border-base-300/50">
         <div className="card-body p-8">
           <h1 className="text-3xl font-bold text-center text-primary mb-6">Đăng nhập</h1>

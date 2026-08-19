@@ -55,12 +55,20 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   const [inviteCodeExpiresAt, setInviteCodeExpiresAt] = useState(room?.inviteCodeExpiresAt);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteQrDataUrl, setInviteQrDataUrl] = useState('');
+  // Danh sách bạn bè để "Thêm thành viên" trực tiếp (chỉ admin/chủ phòng thấy) + những người
+  // vừa bấm Thêm trong phiên mở modal này (server đã lưu pendingInvites, chỉ cần disable nút)
+  const [friendsToAdd, setFriendsToAdd] = useState([]);
+  const [addedMemberIds, setAddedMemberIds] = useState([]);
   const [showJoinRequests, setShowJoinRequests] = useState(false);
   const [joinRequests, setJoinRequests] = useState([]);
   const [inviteCopied, setInviteCopied] = useState(false);
   // Modal xác nhận rời nhóm/kick/chuyển chủ phòng — null | { type: 'leave' } |
   // { type: 'kick'|'transfer', memberId, memberName }
   const [confirmAction, setConfirmAction] = useState(null);
+  // Popup riêng khi CHỦ PHÒNG bấm rời nhóm — cho chọn người kế nhiệm trước, khác modal
+  // confirmAction chung (không đủ chỗ cho danh sách chọn thành viên)
+  const [showLeaveOwnerModal, setShowLeaveOwnerModal] = useState(false);
+  const [leaveNewOwnerId, setLeaveNewOwnerId] = useState('');
   const [forwardTargetMessage, setForwardTargetMessage] = useState(null);
   const [showForward, setShowForward] = useState(false);
   const [errorMsg, showError] = useTimedMessage();
@@ -342,9 +350,9 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
     }
   };
 
-  const handleLeaveRoom = async () => {
+  const handleLeaveRoom = async (newOwnerId) => {
     try {
-      await api.post(`/rooms/${room._id}/leave`);
+      await api.post(`/rooms/${room._id}/leave`, newOwnerId ? { newOwnerId } : {});
       onBackToFriends();
     } catch (err) {
       console.error('[Room] Leave error:', err);
@@ -390,6 +398,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
 
   const handleOpenInvite = async () => {
     setShowInviteModal(true);
+    setAddedMemberIds([]);
     // inviteCode không còn nằm trong room prop (GET /rooms, /rooms/all đã ẩn field này để
     // tránh lộ cho người ngoài) — phải tự fetch riêng qua route đã kiểm tra quyền thành viên.
     try {
@@ -403,6 +412,26 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
     } catch (err) {
       console.error('[Invite] Fetch/QR generate error:', err);
       showError('Không thể tải link mời');
+    }
+
+    if (isAdmin) {
+      try {
+        const { data } = await api.get('/friends');
+        setFriendsToAdd(data);
+      } catch (err) {
+        console.error('[AddMember] Fetch friends error:', err);
+      }
+    }
+  };
+
+  // Thêm thẳng 1 bạn bè vào nhóm (họ tự accept/decline — xem FriendList.jsx tab "Lời mời vào nhóm")
+  const handleAddMember = async (userId) => {
+    try {
+      await api.post(`/rooms/${room._id}/invites/${userId}`);
+      setAddedMemberIds(prev => [...prev, userId]);
+    } catch (err) {
+      console.error('[AddMember] Invite error:', err);
+      showError(err.response?.data?.message || 'Không thể thêm thành viên');
     }
   };
 
@@ -489,7 +518,10 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
 
   const handleSend = useCallback(async (content, replyToId, type = 'text', fileName = null) => {
     try {
-      const payload = await encryptForRoom(room, content, currentEpoch);
+      // Dùng roomMembers (state sống, cập nhật realtime qua room:member_left/joined) thay vì
+      // prop room (snapshot lúc mở phòng) — nếu không, Sender Key epoch mới vẫn bị wrap thừa
+      // cho thiết bị của người vừa bị kick/rời, lộ tin nhắn nếu họ được thêm lại nhóm sau này.
+      const payload = await encryptForRoom({ ...room, members: roomMembers }, content, currentEpoch);
 
       emit('message:send', {
         roomId,
@@ -504,7 +536,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       console.error('[E2EE] Send error:', err);
       showError('Không thể mã hóa tin nhắn E2EE');
     }
-  }, [emit, roomId, room, currentEpoch, showError]);
+  }, [emit, roomId, room, roomMembers, currentEpoch, showError]);
 
   const handleTyping = useCallback((isTyping) => {
     emit(isTyping ? 'typing:start' : 'typing:stop', { roomId });
@@ -549,7 +581,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
 
   const handleEdit = useCallback(async (messageId, newContent) => {
     try {
-      const payload = await encryptForRoom(room, newContent, currentEpoch);
+      const payload = await encryptForRoom({ ...room, members: roomMembers }, newContent, currentEpoch);
 
       emit('message:edit', {
         messageId,
@@ -559,7 +591,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       console.error('[E2EE] Edit error:', err);
       showError('Không thể mã hóa nội dung chỉnh sửa tin nhắn.');
     }
-  }, [emit, room, currentEpoch, showError]);
+  }, [emit, room, roomMembers, currentEpoch, showError]);
 
   const loadMore = async () => {
     const nextPage = page + 1;
@@ -726,7 +758,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
             {room.isDM && dmPartner && (
               <>
                 <button
-                  onClick={() => onInitiateCall && onInitiateCall(dmPartner._id, 'audio')}
+                  onClick={() => onInitiateCall && onInitiateCall(dmPartner, 'audio')}
                   className="btn btn-circle btn-ghost btn-sm text-primary"
                   title="Bắt đầu cuộc gọi thoại"
                 >
@@ -944,7 +976,15 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
                 </ul>
 
                 <button
-                  onClick={() => setConfirmAction({ type: 'leave' })}
+                  onClick={() => {
+                    const others = roomMembers.filter(m => (m._id || m)?.toString() !== user._id?.toString());
+                    if (isOwner && others.length > 0) {
+                      setLeaveNewOwnerId('');
+                      setShowLeaveOwnerModal(true);
+                    } else {
+                      setConfirmAction({ type: 'leave' });
+                    }
+                  }}
                   className="btn btn-sm bg-error/10 hover:bg-error/20 text-error border-error/20 gap-1.5 w-full"
                 >
                   <LogOut className="w-4 h-4" /> Rời nhóm
@@ -978,6 +1018,44 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
             </button>
             <button onClick={handleConfirmAction} className="btn btn-sm bg-error text-white hover:bg-error/90 rounded-full">
               Xác nhận
+            </button>
+          </div>
+        </Modal>
+      )}
+      {/* Modal chọn chủ phòng mới khi CHỦ PHÒNG rời nhóm (bỏ qua thì tự động gán như cũ) */}
+      {showLeaveOwnerModal && (
+        <Modal onClose={() => setShowLeaveOwnerModal(false)} boxClassName="max-w-sm bg-base-100 border border-base-300 shadow-2xl">
+          <h3 className="text-base font-bold mb-2">Rời nhóm — chuyển quyền chủ phòng?</h3>
+          <p className="text-xs text-base-content/60 mb-4">
+            Bạn đang là chủ phòng. Chọn 1 thành viên để chuyển quyền trước khi rời, hoặc bỏ qua để hệ thống tự gán chủ phòng mới.
+          </p>
+          <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto hide-scrollbar mb-4">
+            {roomMembers
+              .filter(m => (m._id || m)?.toString() !== user._id?.toString())
+              .map(m => {
+                const mid = (m._id || m)?.toString();
+                return (
+                  <button
+                    key={mid}
+                    onClick={() => setLeaveNewOwnerId(mid)}
+                    className={`flex items-center gap-2 p-2 rounded-lg text-left text-sm font-medium transition-colors ${
+                      leaveNewOwnerId === mid ? 'bg-primary/10 text-primary ring-1 ring-primary' : 'hover:bg-base-200'
+                    }`}
+                  >
+                    {m.nickname || m.username || 'Thành viên'}
+                  </button>
+                );
+              })}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowLeaveOwnerModal(false)} className="btn btn-sm btn-ghost bg-base-200 rounded-full">
+              Hủy
+            </button>
+            <button
+              onClick={() => { setShowLeaveOwnerModal(false); handleLeaveRoom(leaveNewOwnerId || undefined); }}
+              className="btn btn-sm bg-error text-white hover:bg-error/90 rounded-full flex-1"
+            >
+              {leaveNewOwnerId ? 'Chuyển quyền & Rời nhóm' : 'Rời nhóm (tự động gán chủ mới)'}
             </button>
           </div>
         </Modal>
@@ -1079,6 +1157,36 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
             >
               <RotateCw className="w-3 h-3" /> Tạo lại link (vô hiệu hóa link cũ, gia hạn thêm 7 ngày)
             </button>
+          )}
+
+          {isAdmin && (
+            <div className="mt-4 pt-4 border-t border-base-300">
+              <h4 className="text-xs font-bold text-base-content/60 uppercase tracking-wide mb-2">Thêm thành viên</h4>
+              {friendsToAdd.length === 0 ? (
+                <p className="text-xs text-base-content/40 italic">Chưa có bạn bè nào để thêm.</p>
+              ) : (
+                <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto hide-scrollbar">
+                  {friendsToAdd.map(f => {
+                    const friend = f.sender?._id?.toString() === user._id?.toString() ? f.receiver : f.sender;
+                    if (!friend) return null;
+                    const isMember = roomMembers.some(m => (m._id || m)?.toString() === friend._id?.toString());
+                    const isAdded = addedMemberIds.includes(friend._id);
+                    return (
+                      <div key={friend._id} className="flex items-center justify-between gap-2">
+                        <span className="text-sm truncate">{friend.nickname || friend.username}</span>
+                        <button
+                          disabled={isMember || isAdded}
+                          onClick={() => handleAddMember(friend._id)}
+                          className="btn btn-xs rounded-full font-semibold btn-primary text-white disabled:btn-disabled"
+                        >
+                          {isMember ? 'Đã trong nhóm' : isAdded ? 'Đã gửi lời mời' : 'Thêm'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </Modal>
       )}
