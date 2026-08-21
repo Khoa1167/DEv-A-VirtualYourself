@@ -50,7 +50,21 @@ router.get('/search', protect, async (req, res) => {
       nickname: { $regex: escapedQuery, $options: 'i' }
     }).select('nickname avatar isOnline').limit(20);
 
-    res.json(users);
+    // Đánh dấu requested:true cho những người mình đã gửi lời mời (đang chờ) — không thì sau khi
+    // tải lại trang, client mất state tạm và hiện lại nút "Kết bạn" dù đã gửi lời mời rồi.
+    const pendingSent = await Friendship.find({
+      sender: req.user._id,
+      receiver: { $in: users.map(u => u._id) },
+      status: 'pending',
+    }).select('receiver');
+    const pendingSentSet = new Set(pendingSent.map(f => f.receiver.toString()));
+
+    const results = users.map(u => ({
+      ...u.toObject(),
+      requested: pendingSentSet.has(u._id.toString()),
+    }));
+
+    res.json(results);
   } catch (err) {
     sendServerError(res, err);
   }
@@ -151,14 +165,18 @@ router.put('/accept/:friendshipId', protect, async (req, res) => {
         if (s.data.user && memberIds.includes(s.data.user._id.toString())) {
           s.join(dmRoom._id.toString());
           s.emit('room:added', populatedDmRoom);
-          // Báo riêng cho người GỬI lời mời biết đã được chấp nhận (người nhận vừa bấm nút, tự biết rồi)
-          if (s.data.user._id.toString() === friendship.sender._id.toString()) {
-            s.emit('friend:request_accepted', {
-              receiverId: friendship.receiver._id,
-              receiverNickname: friendship.receiver.nickname || friendship.receiver.username,
-              dmRoomId: dmRoom._id,
-            });
-          }
+          const isSenderSocket = s.data.user._id.toString() === friendship.sender._id.toString();
+          // Người gửi lời mời cần thêm receiverId/dmRoomId để tự mở đoạn chat mới. Người nhận
+          // (dù chấp nhận từ FriendList hay từ Profile Modal của đối phương) chỉ cần friendshipId
+          // để mọi nơi đang hiển thị danh sách "Lời mời" tự đồng bộ, gỡ đúng request đã xử lý.
+          s.emit('friend:request_accepted', isSenderSocket
+            ? {
+                friendshipId: friendship._id,
+                receiverId: friendship.receiver._id,
+                receiverNickname: friendship.receiver.nickname || friendship.receiver.username,
+                dmRoomId: dmRoom._id,
+              }
+            : { friendshipId: friendship._id });
         }
       });
     }
@@ -168,6 +186,18 @@ router.put('/accept/:friendshipId', protect, async (req, res) => {
     sendServerError(res, err);
   }
 });
+
+// Báo cho cả 2 phía của 1 quan hệ bạn bè (không chỉ đối phương mà cả chính người thao tác) — để
+// hành động từ bất kỳ đâu (FriendList, Profile Modal của đối phương...) đều tự đồng bộ ngược lại
+// mọi nơi khác đang mở, vì các component trong cùng 1 tab dùng chung 1 kết nối socket.
+const notifyFriendshipParties = async (io, senderId, receiverId, event, payload) => {
+  if (!io) return;
+  const partyIds = [senderId.toString(), receiverId.toString()];
+  const allSockets = await io.fetchSockets();
+  allSockets
+    .filter(s => s.data.user && partyIds.includes(s.data.user._id.toString()))
+    .forEach(s => s.emit(event, payload));
+};
 
 // PUT /api/friends/reject/:friendshipId — từ chối lời mời
 router.put('/reject/:friendshipId', protect, async (req, res) => {
@@ -180,6 +210,9 @@ router.put('/reject/:friendshipId', protect, async (req, res) => {
 
     if (!friendship)
       return res.status(404).json({ message: 'Không tìm thấy lời mời' });
+
+    await notifyFriendshipParties(req.app.get('socketio'), friendship.sender, friendship.receiver,
+      'friend:request_rejected', { friendshipId: friendship._id });
 
     res.json({ message: 'Đã từ chối lời mời kết bạn' });
   } catch (err) {
@@ -201,6 +234,9 @@ router.delete('/unfriend/:userId', protect, async (req, res) => {
     if (!friendship)
       return res.status(404).json({ message: 'Không tìm thấy quan hệ bạn bè' });
 
+    await notifyFriendshipParties(req.app.get('socketio'), friendship.sender, friendship.receiver,
+      'friend:unfriended', { friendshipId: friendship._id });
+
     res.json({ message: 'Đã hủy kết bạn thành công' });
   } catch (err) {
     sendServerError(res, err);
@@ -218,6 +254,9 @@ router.delete('/cancel/:userId', protect, async (req, res) => {
 
     if (!friendship)
       return res.status(404).json({ message: 'Không tìm thấy lời mời kết bạn' });
+
+    await notifyFriendshipParties(req.app.get('socketio'), friendship.sender, friendship.receiver,
+      'friend:request_cancelled', { friendshipId: friendship._id });
 
     res.json({ message: 'Đã hủy lời mời kết bạn' });
   } catch (err) {

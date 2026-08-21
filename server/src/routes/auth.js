@@ -23,11 +23,23 @@ const crypto = require('crypto');
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const phoneRegex = /^\+?[0-9]{7,15}$/;
+// username: định danh đăng nhập, chỉ ASCII an toàn — không cần hỗ trợ Unicode (đã có nickname
+// riêng cho tên hiển thị), tránh giả mạo bằng ký tự nhìn giống (homoglyph) hay ký tự vô hình.
+const usernameRegex = /^[a-zA-Z0-9_.]{3,16}$/;
+// nickname: chỉ chặn nhóm ký tự Control/Format/Private-Use/Surrogate (\p{C}) — zero-width,
+// bidi-override... đây mới là nhóm thực sự dùng để giả mạo/vô hình. Ký hiệu, emoji, dấu câu
+// bình thường đều cho qua (không whitelist hẹp theo L/M/N để khỏi chặn nhầm ký hiệu trang trí).
+const nicknameRegex = /^(?!.*\p{C})[\s\S]{2,20}$/u;
 
 const normalizeEmail = (value) => typeof value === 'string' ? value.toLowerCase().trim() : '';
 const normalizePhone = (value) => typeof value === 'string' ? value.trim().replace(/[()\s\-]/g, '') : '';
 const isValidEmail = (value) => emailRegex.test(value);
 const isValidPhone = (value) => phoneRegex.test(value);
+const isValidUsername = (value) => typeof value === 'string' && usernameRegex.test(value);
+// NFC: gộp các cách biểu diễn Unicode khác nhau của cùng 1 ký tự có dấu về đúng 1 dạng, để chuỗi
+// nhìn giống hệt nhau thì so trùng lặp cũng khớp nhau (khác byte nhưng cùng hiển thị sẽ không lách được).
+const normalizeNickname = (value) => typeof value === 'string' ? value.trim().normalize('NFC') : '';
+const isValidNickname = (value) => nicknameRegex.test(value);
 
 // Bootstrap token (hạn 15m, chưa đăng ký device)
 const genBootstrapToken = (id) =>
@@ -52,10 +64,10 @@ const hashOTP = (otp) =>
 // thời 1 nguồn/1 nạn nhân, map riêng từng route) và ngân sách toàn hệ thống/ngày dùng CHUNG 1 bộ
 // đếm (chặn botnet rải nhiều IP/email khác nhau ở bất kỳ route nào, vốn 2 lớp trên không chặn nổi
 // — nếu để mỗi route tự có ngân sách riêng thì cộng dồn lại vẫn có thể vượt hạn 300/ngày của Brevo).
-const sendOtpIpMap = new Map();
-const sendOtpEmailMap = new Map();
-const forgotPasswordIpMap = new Map();
-const forgotPasswordEmailMap = new Map();
+const NS_SEND_OTP_IP = 'send-otp-ip';
+const NS_SEND_OTP_EMAIL = 'send-otp-email';
+const NS_FORGOT_PASSWORD_IP = 'forgot-password-ip';
+const NS_FORGOT_PASSWORD_EMAIL = 'forgot-password-email';
 let dailyOtpBudget = { date: '', count: 0 };
 const DAILY_OTP_BUDGET_MAX = 200; // chừa dư cho đổi email cũng dùng chung quota Brevo
 
@@ -83,8 +95,8 @@ router.post('/send-otp', async (req, res) => {
     // Validate cơ bản
     if (typeof username !== 'string' || typeof password !== 'string' || !normalizedEmail)
       return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin' });
-    if (username.length < 3)
-      return res.status(400).json({ message: 'Tên tài khoản phải có ít nhất 3 ký tự' });
+    if (!isValidUsername(username))
+      return res.status(400).json({ message: 'Tên tài khoản chỉ được chứa chữ cái, số, dấu chấm hoặc gạch dưới (3-16 ký tự)' });
     if (password.length < 6)
       return res.status(400).json({ message: 'Mật khẩu phải có ít nhất 6 ký tự' });
     if (!isValidEmail(normalizedEmail))
@@ -93,11 +105,11 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ message: 'Số điện thoại không hợp lệ' });
 
     // Chống spam: tối đa 5 lần gửi OTP/15 phút theo IP, 3 lần theo email đích
-    const ipLock = checkLock(sendOtpIpMap, req.ip);
+    const ipLock = await checkLock(NS_SEND_OTP_IP, req.ip);
     if (ipLock.locked) {
       return res.status(429).json({ message: `Bạn đã yêu cầu OTP quá nhiều lần. Thử lại sau ${ipLock.waitMinutes} phút.` });
     }
-    const emailLock = checkLock(sendOtpEmailMap, normalizedEmail);
+    const emailLock = await checkLock(NS_SEND_OTP_EMAIL, normalizedEmail);
     if (emailLock.locked) {
       return res.status(429).json({ message: `Email này đã yêu cầu OTP quá nhiều lần. Thử lại sau ${emailLock.waitMinutes} phút.` });
     }
@@ -108,11 +120,11 @@ router.post('/send-otp', async (req, res) => {
     // Kiểm tra username/email đã tồn tại chưa
     const usernameExists = await User.findOne({ username });
     if (usernameExists)
-      return res.status(400).json({ message: 'Tên tài khoản đã tồn tại' });
+      return res.status(400).json({ field: 'username', message: 'Tên tài khoản đã tồn tại' });
 
     const emailExists = await User.findOne({ email: normalizedEmail });
     if (emailExists)
-      return res.status(400).json({ message: 'Email đã được sử dụng' });
+      return res.status(400).json({ field: 'email', message: 'Email đã được sử dụng' });
 
     // Tạo OTP và hash password
     const otp            = generateOTP();
@@ -122,17 +134,29 @@ router.post('/send-otp', async (req, res) => {
 
     // Xóa pending user cũ nếu có, tạo mới hoàn toàn
     await PendingUser.deleteOne({ email: normalizedEmail });
-    await PendingUser.create({
-      username, hashedPassword, email: normalizedEmail,
-      phone: normalizedPhone, otp: hashedOtp, expiresAt, attempts: 0,
-    });
+    try {
+      await PendingUser.create({
+        username, hashedPassword, email: normalizedEmail,
+        phone: normalizedPhone, otp: hashedOtp, expiresAt, attempts: 0,
+      });
+    } catch (err) {
+      // Race condition: 2 người bấm đăng ký cùng username/email gần như đồng thời — unique index
+      // chặn ở đây (atomic), dừng ngay trước khi tốn quota gửi mail cho người thua cuộc.
+      if (err.code === 11000 && err.keyPattern?.username) {
+        return res.status(400).json({ field: 'username', message: 'Tên tài khoản đang được người khác đăng ký, vui lòng thử tên khác' });
+      }
+      if (err.code === 11000 && err.keyPattern?.email) {
+        return res.status(400).json({ field: 'email', message: 'Email này đang được người khác đăng ký, vui lòng thử lại sau' });
+      }
+      throw err;
+    }
 
     // Gửi email OTP
     await sendOTPEmail(normalizedEmail, otp);
     if (process.env.NODE_ENV !== 'production') console.log(`[DEBUG] OTP for ${normalizedEmail}: ${otp}`);
 
-    recordFailure(sendOtpIpMap, req.ip);
-    recordFailure(sendOtpEmailMap, normalizedEmail, { maxAttempts: 3, lockMinutes: 15 });
+    await recordFailure(NS_SEND_OTP_IP, req.ip);
+    await recordFailure(NS_SEND_OTP_EMAIL, normalizedEmail, { maxAttempts: 3, lockMinutes: 15 });
     dailyOtpBudget.count += 1;
 
     res.json({ message: 'OTP đã được gửi tới email của bạn' });
@@ -159,13 +183,13 @@ router.post('/verify-otp', async (req, res) => {
 
     // Kiểm tra hết hạn
     if (new Date() > pending.expiresAt) {
-      await PendingUser.deleteOne({ email });
+      await PendingUser.deleteOne({ email: normalizedEmail });
       return res.status(400).json({ message: 'OTP đã hết hạn, vui lòng đăng ký lại' });
     }
 
     // Kiểm tra số lần nhập sai
     if (pending.attempts >= 5) {
-      await PendingUser.deleteOne({ email });
+      await PendingUser.deleteOne({ email: normalizedEmail });
       return res.status(400).json({ message: 'Quá nhiều lần nhập sai, vui lòng đăng ký lại' });
     }
 
@@ -190,10 +214,28 @@ router.post('/verify-otp', async (req, res) => {
     });
     // Đánh dấu password chưa bị thay đổi để bypass pre-save hook
     user.$__.activePaths.states.modify = {};
-    await user.save({ validateBeforeSave: false });
+    try {
+      await user.save({ validateBeforeSave: false });
+    } catch (err) {
+      if (err.code === 11000) {
+        // Lưới an toàn cuối cùng cho race condition (PendingUser hết hạn/giải phóng username giữa
+        // lúc người khác đang verify) — unique index của User chặn ở đây. Xóa pending, bắt đăng ký
+        // lại từ đầu thay vì trả 500 chung chung + để pending kẹt lại vô ích. Đọc keyPattern để
+        // báo đúng field bị trùng thay vì mặc định luôn đổ lỗi cho username.
+        await PendingUser.deleteOne({ email: normalizedEmail });
+        const field = err.keyPattern?.username ? 'username' : err.keyPattern?.email ? 'email' : 'nickname';
+        const fieldMessage = {
+          username: 'Tên tài khoản vừa bị người khác đăng ký trước, vui lòng đăng ký lại với tên khác',
+          email:    'Email này vừa được đăng ký bởi tài khoản khác, vui lòng đăng ký lại với email khác',
+          nickname: 'Đã có lỗi trùng lặp khi tạo tài khoản, vui lòng đăng ký lại',
+        }[field];
+        return res.status(409).json({ field, message: fieldMessage });
+      }
+      throw err;
+    }
 
     // Xóa pending user
-    await PendingUser.deleteOne({ email });
+    await PendingUser.deleteOne({ email: normalizedEmail });
 
     res.status(201).json({
       message: 'Đăng ký thành công!',
@@ -210,8 +252,8 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/check-username', async (req, res) => {
   try {
     const { username } = req.body;
-    if (typeof username !== 'string')
-      return res.status(400).json({ message: 'Tên tài khoản không hợp lệ' });
+    if (!isValidUsername(username))
+      return res.json({ available: false });
     const exists = await User.findOne({ username });
     res.json({ available: !exists });
   } catch (err) {
@@ -222,10 +264,10 @@ router.post('/check-username', async (req, res) => {
 // ─── POST /api/auth/check-nickname ────────────────────────────────────────
 router.post('/check-nickname', async (req, res) => {
   try {
-    const { nickname } = req.body;
-    if (typeof nickname !== 'string')
-      return res.status(400).json({ message: 'Tên hiển thị không hợp lệ' });
-    const exists = await User.findOne({ nickname });
+    const normalizedNickname = normalizeNickname(req.body.nickname);
+    if (!isValidNickname(normalizedNickname))
+      return res.json({ available: false });
+    const exists = await User.findOne({ nickname: normalizedNickname });
     res.json({ available: !exists });
   } catch (err) {
     sendServerError(res, err);
@@ -235,10 +277,9 @@ router.post('/check-nickname', async (req, res) => {
 // ─── POST /api/auth/set-nickname ──────────────────────────────────────────
 router.post('/set-nickname', protect, async (req, res) => {
   try {
-    const { nickname } = req.body;
-    const normalizedNickname = typeof nickname === 'string' ? nickname.trim() : '';
-    if (!normalizedNickname || normalizedNickname.length < 2)
-      return res.status(400).json({ message: 'Nickname phải có ít nhất 2 ký tự' });
+    const normalizedNickname = normalizeNickname(req.body.nickname);
+    if (!isValidNickname(normalizedNickname))
+      return res.status(400).json({ message: 'Tên hiển thị không hợp lệ (2-20 ký tự, không chứa ký tự ẩn/điều khiển)' });
 
     // Chỉ cho phép thiết lập nickname lần đầu khi mới đăng ký tài khoản
     if (req.user.nicknameChangedAt) {
@@ -251,11 +292,21 @@ router.post('/set-nickname', protect, async (req, res) => {
       nickname: normalizedNickname, _id: { $ne: req.user._id }
     });
     if (exists)
-      return res.status(400).json({ message: 'Tên hiển thị đã tồn tại' });
+      return res.status(400).json({ field: 'nickname', message: 'Tên hiển thị đã tồn tại' });
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id, { nickname: normalizedNickname, nicknameChangedAt: new Date() }, { new: true, runValidators: true }
-    );
+    let user;
+    try {
+      user = await User.findByIdAndUpdate(
+        req.user._id, { nickname: normalizedNickname, nicknameChangedAt: new Date() }, { new: true, runValidators: true }
+      );
+    } catch (err) {
+      // Race condition: 2 người cùng đặt trùng nickname gần như đồng thời — check phía trên chỉ
+      // là TOCTOU, unique index của User mới là lưới an toàn chặn thật ở đây.
+      if (err.code === 11000 && err.keyPattern?.nickname) {
+        return res.status(409).json({ field: 'nickname', message: 'Tên hiển thị vừa bị người khác đăng ký trước, vui lòng chọn tên khác' });
+      }
+      throw err;
+    }
     res.json(user);
   } catch (err) {
     sendServerError(res, err);
@@ -263,7 +314,7 @@ router.post('/set-nickname', protect, async (req, res) => {
 });
 
 // Chống brute-force đăng nhập: tối đa 5 lần sai / 15 phút, tính theo username
-const loginFailedAttemptsMap = new Map();
+const NS_LOGIN = 'login';
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
@@ -277,17 +328,17 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Xác minh CAPTCHA thất bại, vui lòng thử lại' });
     }
 
-    const lock = checkLock(loginFailedAttemptsMap, username);
+    const lock = await checkLock(NS_LOGIN, username);
     if (lock.locked) {
       return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng nhập do nhập sai mật khẩu quá nhiều lần. Thử lại sau ${lock.waitMinutes} phút.` });
     }
 
     const user = await User.findOne({ username });
     if (!user || !(await user.comparePassword(password))) {
-      recordFailure(loginFailedAttemptsMap, username);
+      await recordFailure(NS_LOGIN, username);
       return res.status(401).json({ message: 'Sai tên tài khoản hoặc mật khẩu' });
     }
-    clearFailures(loginFailedAttemptsMap, username);
+    await clearFailures(NS_LOGIN, username);
 
     res.json({ token: genToken(user._id), user });
   } catch (err) {
@@ -305,9 +356,9 @@ router.put('/profile', protect, async (req, res) => {
     const updates = {};
 
     if (nickname && nickname !== req.user.nickname) {
-      const normalizedNickname = typeof nickname === 'string' ? nickname.trim() : '';
-      if (!normalizedNickname || normalizedNickname.length < 2)
-        return res.status(400).json({ message: 'Nickname phải có ít nhất 2 ký tự' });
+      const normalizedNickname = normalizeNickname(nickname);
+      if (!isValidNickname(normalizedNickname))
+        return res.status(400).json({ message: 'Tên hiển thị không hợp lệ (2-20 ký tự, không chứa ký tự ẩn/điều khiển)' });
 
       // Kiểm tra 7 ngày
       if (req.user.nicknameChangedAt) {
@@ -616,11 +667,11 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'Email không hợp lệ' });
 
     // Chống spam: tối đa 5 lần yêu cầu/15 phút theo IP — chặn trước khi chạm DB
-    const ipLock = checkLock(forgotPasswordIpMap, req.ip);
+    const ipLock = await checkLock(NS_FORGOT_PASSWORD_IP, req.ip);
     if (ipLock.locked) {
       return res.status(429).json({ message: `Bạn đã yêu cầu quá nhiều lần. Thử lại sau ${ipLock.waitMinutes} phút.` });
     }
-    recordFailure(forgotPasswordIpMap, req.ip);
+    await recordFailure(NS_FORGOT_PASSWORD_IP, req.ip);
 
     const user = await User.findOne({ email: lowerEmail });
 
@@ -646,7 +697,7 @@ router.post('/forgot-password', async (req, res) => {
 
     // Thêm trần 3 lần/15 phút theo email đích (cooldown 60s ở trên chỉ chặn dồn dập sát nhau,
     // vẫn lọt nếu request đúng cách nhau >60s liên tục) + ngân sách chung toàn hệ thống/ngày
-    const emailLock = checkLock(forgotPasswordEmailMap, lowerEmail);
+    const emailLock = await checkLock(NS_FORGOT_PASSWORD_EMAIL, lowerEmail);
     if (emailLock.locked) {
       return res.status(429).json({ message: `Email này đã yêu cầu quá nhiều lần. Thử lại sau ${emailLock.waitMinutes} phút.` });
     }
@@ -678,7 +729,7 @@ router.post('/forgot-password', async (req, res) => {
     } catch (mailErr) {
       console.error('Lỗi dịch vụ gửi mail SMTP:', mailErr.message);
     }
-    recordFailure(forgotPasswordEmailMap, lowerEmail, { maxAttempts: 3, lockMinutes: 15 });
+    await recordFailure(NS_FORGOT_PASSWORD_EMAIL, lowerEmail, { maxAttempts: 3, lockMinutes: 15 });
     dailyOtpBudget.count += 1;
 
     res.json(genericResponse);
@@ -793,10 +844,10 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// Rate limit maps cho device management
-const failedPasswordMap = new Map();
-const mutationRateLimitMap = new Map();
-const renewalRateLimitMap = new Map();
+// Rate limit namespaces cho device management
+const NS_DEVICE_PASSWORD = 'device-password';
+const NS_DEVICE_MUTATION = 'device-mutation';
+const NS_DEVICE_RENEWAL = 'device-renewal';
 
 // Helper emit debounced key:changed event
 const debouncedKeyChangedTimers = new Map();
@@ -829,7 +880,7 @@ router.put('/devices', protect, async (req, res) => {
     const now = Date.now();
 
     // 1. Password Brute-Force Rate Limiter (Max 5 sai / 15m)
-    const lock = checkLock(failedPasswordMap, userId);
+    const lock = await checkLock(NS_DEVICE_PASSWORD, userId);
     if (lock.locked) {
       return res.status(429).json({ message: `Tài khoản tạm thời bị khóa đăng ký thiết bị do nhập sai mật khẩu quá 5 lần. Thử lại sau ${lock.waitMinutes} phút.` });
     }
@@ -838,10 +889,10 @@ router.put('/devices', protect, async (req, res) => {
     const userWithPassword = await User.findById(req.user._id);
     const isMatch = await userWithPassword.comparePassword(currentPassword);
     if (!isMatch) {
-      recordFailure(failedPasswordMap, userId);
+      await recordFailure(NS_DEVICE_PASSWORD, userId);
       return res.status(401).json({ message: 'Mật khẩu xác nhận không chính xác' });
     }
-    clearFailures(failedPasswordMap, userId);
+    await clearFailures(NS_DEVICE_PASSWORD, userId);
 
     // Xử lý 3 nhánh bằng Transaction (kèm fallback nếu không có replica set)
     let finalShouldEmit = false;
@@ -876,7 +927,7 @@ router.put('/devices', protect, async (req, res) => {
             return res.status(400).json({ message: 'Tài khoản đã đạt giới hạn 5 thiết bị đang hoạt động. Vui lòng gỡ bớt thiết bị cũ.' });
           }
 
-          const mutLimit = checkRateWindow(mutationRateLimitMap, userId, { maxCount: 3, windowMs: 3600000 });
+          const mutLimit = await checkRateWindow(NS_DEVICE_MUTATION, userId, { maxCount: 3, windowMs: 3600000 });
           if (mutLimit.limited) {
             if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
             return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
@@ -895,7 +946,7 @@ router.put('/devices', protect, async (req, res) => {
           shouldEmitThisTry = true;
         } else if (existingDevice.isRevoked) {
           // Nhánh 2: Device tồn tại và isRevoked === true (Reactivation)
-          const mutLimit = checkRateWindow(mutationRateLimitMap, userId, { maxCount: 3, windowMs: 3600000 });
+          const mutLimit = await checkRateWindow(NS_DEVICE_MUTATION, userId, { maxCount: 3, windowMs: 3600000 });
           if (mutLimit.limited) {
             if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
             return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });
@@ -913,7 +964,7 @@ router.put('/devices', protect, async (req, res) => {
           // Nhánh 3: Device tồn tại và isRevoked === false (Active Device)
           if (existingDevice.publicKey === publicKey) {
             // Case 3a: Gia hạn token 7d bình thường (publicKey không đổi)
-            const renewLimit = checkRateWindow(renewalRateLimitMap, userId, { maxCount: 30, windowMs: 3600000 });
+            const renewLimit = await checkRateWindow(NS_DEVICE_RENEWAL, userId, { maxCount: 30, windowMs: 3600000 });
             if (renewLimit.limited) {
               if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
               return res.status(429).json({ message: 'Quá nhiều yêu cầu gia hạn thiết bị. Thử lại sau.' });
@@ -925,7 +976,7 @@ router.put('/devices', protect, async (req, res) => {
             shouldEmitThisTry = false;
           } else {
             // Case 3b: Key Rotation / Mất Storage (publicKey khác cũ)
-            const mutLimit = checkRateWindow(mutationRateLimitMap, userId, { maxCount: 3, windowMs: 3600000 });
+            const mutLimit = await checkRateWindow(NS_DEVICE_MUTATION, userId, { maxCount: 3, windowMs: 3600000 });
             if (mutLimit.limited) {
               if (isReplicaSet && session) { await session.abortTransaction(); session.endSession(); }
               return res.status(429).json({ message: 'Bạn đã thay đổi thiết bị quá 3 lần/giờ. Vui lòng thử lại sau.' });

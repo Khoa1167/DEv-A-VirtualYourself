@@ -3,10 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import Turnstile from '../common/Turnstile';
 import Toast from '../common/Toast';
+import PasswordInput from '../common/PasswordInput';
 import useTimedMessage from '../../hooks/useTimedMessage';
 import useAvailabilityCheck from '../../hooks/useAvailabilityCheck';
 
-const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
+const turnstileEnabled = !!import.meta.env.VITE_CLOUDFLARE_TURNSTILE_SITE_KEY;
 
 export default function Register() {
   const [step, setStep] = useState(1); // 1: form đăng ký, 2: nhập OTP
@@ -21,9 +22,16 @@ export default function Register() {
   const [otp, setOtp]               = useState('');
   const usernameStatus = useAvailabilityCheck(form.username, {
     checkFn: async (username) => (await api.post('/auth/check-username', { username })).data.available,
+    // Khớp usernameRegex phía server (server/src/routes/auth.js) — báo sai định dạng ngay phía
+    // client, không để lẫn với 'taken' (server trả available:false cho cả 2 trường hợp).
+    validate: (v) => /^[a-zA-Z0-9_.]{3,16}$/.test(v),
     minLength: 3,
   });
   const [error, showError]          = useTimedMessage();
+  // Lỗi conflict gắn theo từng ô nhập cụ thể (username/email trùng, kể cả do race condition phát
+  // hiện muộn ở bước verify-otp) — hiển thị ngay dưới ô gây lỗi, khác với `error` (banner chung
+  // cho lỗi không gắn với 1 ô cụ thể như CAPTCHA sai, rate-limit, OTP sai/hết hạn).
+  const [fieldErrors, setFieldErrors] = useState({ username: '', email: '' });
   const [loading, setLoading]       = useState(false);
   const [countdown, setCountdown]   = useState(0); // đếm ngược 5 phút
   const navigate                    = useNavigate();
@@ -50,6 +58,7 @@ export default function Register() {
   const handleSendOTP = async (e) => {
     e.preventDefault();
     showError('');
+    setFieldErrors({ username: '', email: '' });
 
     if (form.password !== form.confirmPassword) {
       showError('Mật khẩu xác nhận không khớp'); return;
@@ -70,7 +79,12 @@ export default function Register() {
       setStep(2);
       setCountdown(300); // 5 phút
     } catch (err) {
-      showError(err.response?.data?.message || 'Gửi OTP thất bại');
+      const { field, message } = err.response?.data || {};
+      if (field === 'username' || field === 'email') {
+        setFieldErrors(prev => ({ ...prev, [field]: message }));
+      } else {
+        showError(message || 'Gửi OTP thất bại');
+      }
     } finally {
       setLoading(false);
       setTurnstileResetKey(k => k + 1);
@@ -93,7 +107,17 @@ export default function Register() {
       sessionStorage.setItem('token', data.token);
       navigate('/set-nickname', { state: { password: form.password } });
     } catch (err) {
-      showError(err.response?.data?.message || 'Xác thực OTP thất bại');
+      const { field, message } = err.response?.data || {};
+      if (field === 'username' || field === 'email') {
+        // Race condition chỉ lộ ra tới giờ mới biết (username/email vừa bị người khác chiếm khi
+        // đang chờ nhập OTP) — pending đã bị server xóa, phải quay lại bước 1 sửa đúng ô gây lỗi.
+        setOtp('');
+        setCountdown(0);
+        setFieldErrors(prev => ({ ...prev, [field]: message }));
+        setStep(1);
+      } else {
+        showError(message || 'Xác thực OTP thất bại');
+      }
     } finally {
       setLoading(false);
     }
@@ -114,7 +138,15 @@ export default function Register() {
       });
       setCountdown(300);
     } catch (err) {
-      showError(err.response?.data?.message || 'Gửi lại OTP thất bại');
+      const { field, message } = err.response?.data || {};
+      if (field === 'username' || field === 'email') {
+        setOtp('');
+        setCountdown(0);
+        setFieldErrors(prev => ({ ...prev, [field]: message }));
+        setStep(1);
+      } else {
+        showError(message || 'Gửi lại OTP thất bại');
+      }
     } finally {
       setLoading(false);
       setTurnstileResetKey(k => k + 1);
@@ -122,9 +154,13 @@ export default function Register() {
   };
 
   const getUsernameMsg = () => {
+    // Lỗi conflict từ server (kể cả phát hiện muộn do race condition) được ưu tiên hiện trước —
+    // chỉ mất đi khi người dùng thật sự sửa lại ô này (xem onChange bên dưới).
+    if (fieldErrors.username) return <span className="text-xs text-error flex items-center gap-1 mt-1">❌ {fieldErrors.username}</span>;
     if (usernameStatus === 'checking') return <span className="text-xs text-info flex items-center gap-1 mt-1">⏳ Đang kiểm tra...</span>;
     if (usernameStatus === 'available') return <span className="text-xs text-success flex items-center gap-1 mt-1">✅ Tên tài khoản có thể dùng</span>;
     if (usernameStatus === 'taken')    return <span className="text-xs text-error flex items-center gap-1 mt-1">❌ Tên tài khoản đã tồn tại</span>;
+    if (usernameStatus === 'invalid')  return <span className="text-xs text-error flex items-center gap-1 mt-1">❌ Tài khoản không được chứa khoảng trống, kí tự đặc biệt, độ dài 3-16 kí tự</span>;
     return null;
   };
 
@@ -151,10 +187,13 @@ export default function Register() {
                 </label>
                 <input
                   className="input input-bordered focus:input-primary w-full transition-all duration-200"
-                  placeholder="Nhập tên tài khoản (3 - 30 ký tự)..."
+                  placeholder="Nhập tên tài khoản (3 - 16 ký tự)..."
                   value={form.username}
-                  onChange={e => setForm({ ...form, username: e.target.value })}
-                  required minLength={3} maxLength={30}
+                  onChange={e => {
+                    setForm({ ...form, username: e.target.value });
+                    if (fieldErrors.username) setFieldErrors(prev => ({ ...prev, username: '' }));
+                  }}
+                  required minLength={3} maxLength={16}
                 />
                 <div className="min-h-[20px]">{getUsernameMsg()}</div>
               </div>
@@ -164,8 +203,7 @@ export default function Register() {
                   <label className="label">
                     <span className="label-text font-semibold text-base-content/80">Mật khẩu</span>
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     className="input input-bordered focus:input-primary w-full transition-all duration-200"
                     placeholder="Tối thiểu 6 ký tự..."
                     value={form.password}
@@ -178,8 +216,7 @@ export default function Register() {
                   <label className="label">
                     <span className="label-text font-semibold text-base-content/80">Xác nhận mật khẩu</span>
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     className="input input-bordered focus:input-primary w-full transition-all duration-200"
                     placeholder="Nhập lại mật khẩu..."
                     value={form.confirmPassword}
@@ -198,9 +235,15 @@ export default function Register() {
                   className="input input-bordered focus:input-primary w-full transition-all duration-200"
                   placeholder="name@example.com"
                   value={form.email}
-                  onChange={e => setForm({ ...form, email: e.target.value })}
+                  onChange={e => {
+                    setForm({ ...form, email: e.target.value });
+                    if (fieldErrors.email) setFieldErrors(prev => ({ ...prev, email: '' }));
+                  }}
                   required
                 />
+                {fieldErrors.email && (
+                  <span className="text-xs text-error flex items-center gap-1 mt-1">❌ {fieldErrors.email}</span>
+                )}
               </div>
 
               <div className="form-control">
@@ -216,6 +259,9 @@ export default function Register() {
               </div>
 
               <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+              {turnstileEnabled && !turnstileToken && (
+                <span className="text-xs text-error flex items-center justify-center gap-1">❌ Vui lòng xác thực CAPTCHA trước khi tiếp tục</span>
+              )}
 
               <button
                 type="submit"
@@ -307,6 +353,9 @@ export default function Register() {
           {countdown === 0 && (
             <div className="mb-3">
               <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+              {turnstileEnabled && !turnstileToken && (
+                <span className="text-xs text-error flex items-center justify-center gap-1 mt-1">❌ Vui lòng xác thực CAPTCHA trước khi gửi lại</span>
+              )}
             </div>
           )}
 

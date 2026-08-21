@@ -4,9 +4,10 @@ import { useAuth } from '../../context/AuthContext';
 import ForgotPasswordModal from './ForgotPasswordModal';
 import Turnstile from '../common/Turnstile';
 import Toast from '../common/Toast';
+import PasswordInput from '../common/PasswordInput';
 import useTimedMessage from '../../hooks/useTimedMessage';
 
-const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
+const turnstileEnabled = !!import.meta.env.VITE_CLOUDFLARE_TURNSTILE_SITE_KEY;
 
 export default function Login() {
   const [form, setForm]               = useState({ username: '', password: '' });
@@ -71,8 +72,7 @@ export default function Login() {
                   Quên mật khẩu?
                 </button>
               </div>
-              <input
-                type="password"
+              <PasswordInput
                 className="input input-bordered focus:input-primary w-full transition-all duration-200"
                 placeholder="Nhập mật khẩu..."
                 value={form.password}
@@ -82,6 +82,9 @@ export default function Login() {
             </div>
             
             <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+            {turnstileEnabled && !turnstileToken && (
+              <span className="text-xs text-error flex items-center justify-center gap-1">❌ Vui lòng xác thực CAPTCHA trước khi tiếp tục</span>
+            )}
 
             <button
               type="submit"

@@ -17,7 +17,7 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-  const { on } = useSocket();
+  const { on, emit } = useSocket();
 
   const [alias, setAlias] = useState('');
   const [isEditingAlias, setIsEditingAlias] = useState(false);
@@ -91,7 +91,9 @@ export default function OtherUserProfileModal({ userId, onClose, onSelectRoom, o
   const handleSendRequest = async () => {
     setActionLoading(true);
     try {
-      await api.post(`/friends/request/${userId}`);
+      const { data } = await api.post(`/friends/request/${userId}`);
+      // Báo realtime cho người nhận, giống FriendList.jsx — không thì họ chỉ thấy sau khi F5.
+      emit('friend:request', { receiverId: userId, friendship: data });
       setProfile(prev => ({ ...prev, friendshipStatus: 'pending_sent' }));
       showActionSuccess('Đã gửi lời mời kết bạn');
     } catch (err) {

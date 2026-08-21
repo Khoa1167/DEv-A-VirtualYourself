@@ -37,7 +37,7 @@ export default function CallModal({
         remoteVideoRef.current.srcObject = remoteStream;
       }
     }
-  }, [callState, localStream, remoteStream, isMinimized]);
+  }, [callState, localStream, remoteStream, isMinimized, isVideoOff]);
 
   // Chuông đổ cho ringing-out/ringing-in — tự sinh bằng Web Audio API, không cần file audio.
   useEffect(() => {

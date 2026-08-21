@@ -148,8 +148,8 @@ router.get('/all', protect, async (req, res) => {
 // GET /api/rooms/:id/messages — lấy tin nhắn của phòng
 router.get('/:id/messages', protect, async (req, res) => {
   try {
-    const { page = 1, limit = 30 } = req.query;
-    
+    const { before, limit = 30 } = req.query;
+
     // Kiểm tra xem user có phải thành viên phòng không (Sửa lỗi IDOR)
     const room = await Room.findById(req.params.id);
     if (!room) return res.status(404).json({ message: 'Phòng không tồn tại' });
@@ -157,16 +157,22 @@ router.get('/:id/messages', protect, async (req, res) => {
       return res.status(403).json({ message: 'Không có quyền truy cập tin nhắn của phòng này' });
     }
 
-    const messages = await Message.find({
+    const query = {
       room: req.params.id,
-      isDeleted: false
-    })
+      isDeleted: false,
+      // Loại tin đã tự hủy nhưng MongoDB TTL (quét nền ~60s/lần) chưa kịp xóa vật lý
+      $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+    };
+    // Cursor-based: lấy tin cũ hơn createdAt của tin cũ nhất đã load, thay vì skip theo số trang
+    // — skip vẫn phải duyệt qua N document đã bỏ qua dù có index, càng phân trang sâu càng chậm.
+    if (before) query.createdAt = { $lt: new Date(before) };
+
+    const messages = await Message.find(query)
       .populate('sender', userFields.BASIC) // Sửa lỗi hiển thị Nickname
       .populate({ path: 'replyTo', select: 'sender content type fileName isDeleted iv tag encryptedKey', populate: { path: 'sender', select: userFields.BASIC } })
       .populate({ path: 'forwardedFrom', select: 'sender content iv tag encryptedKey', populate: { path: 'sender', select: userFields.MINIMAL } })
       .populate('reactions.users', userFields.MINIMAL)
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
       .limit(Number(limit));
 
     // Giải mã tin nhắn và các tin nhắn liên quan trước khi gửi về client
@@ -199,16 +205,17 @@ router.get('/:id/messages', protect, async (req, res) => {
   }
 });
 
-// Thêm userDoc vào members ngay (joinPolicy 'open') hoặc vào hàng chờ duyệt ('approval').
-// userDoc cần {_id, username, nickname, avatar} — dùng chung bởi /join, /invite/:code và duyệt
-// yêu cầu tham gia. Idempotent nếu đã là thành viên.
-const addMemberOrRequest = async (room, userDoc, io) => {
+// Thêm userDoc vào members ngay (joinPolicy 'open', chỉ áp dụng cho /join) hoặc vào hàng chờ
+// duyệt. alwaysPending=true ép vào hàng chờ bất kể joinPolicy — dùng cho /invite/:code vì link/QR
+// mời phải luôn cần chủ phòng/admin duyệt, không phụ thuộc cấu hình phòng công khai.
+// userDoc cần {_id, username, nickname, avatar}. Idempotent nếu đã là thành viên.
+const addMemberOrRequest = async (room, userDoc, io, alwaysPending = false) => {
   const uidStr = userDoc._id.toString();
   if (room.members.some(m => m.toString() === uidStr)) {
     return { status: 'joined' };
   }
 
-  if (room.joinPolicy === 'approval') {
+  if (room.joinPolicy === 'approval' || alwaysPending) {
     if (!room.pendingRequests.some(p => p.toString() === uidStr)) {
       room.pendingRequests.push(userDoc._id);
       await room.save();
@@ -238,6 +245,20 @@ const addMemberOrRequest = async (room, userDoc, io) => {
     io.to(room._id.toString()).emit('room:member_joined', {
       roomId: room._id.toString(),
       member: { _id: uidStr, username: userDoc.username, nickname: userDoc.nickname, avatar: userDoc.avatar, isOnline: true },
+    });
+
+    // Báo riêng cho người vừa tự vào — họ chưa join socket room (io.to ở trên không tới được) nên
+    // cần join + emit riêng, khớp mẫu đã dùng ở /join-requests/:userId (duyệt) và /invites/accept.
+    // Thiếu bước này thì Sidebar (chỉ thêm phòng mới qua sự kiện 'room:added') không bao giờ có
+    // phòng — phòng "mất tích" khỏi danh sách khi rời màn hình chat, tin nhắn mới cũng không lên
+    // được sidebar cho tới khi tải lại trang.
+    await room.populate('members', userFields.WITH_STATUS);
+    const allSockets = await io.fetchSockets();
+    allSockets.forEach(s => {
+      if (s.data.user && s.data.user._id.toString() === uidStr) {
+        s.join(room._id.toString());
+        s.emit('room:added', room);
+      }
     });
   }
   return { status: 'joined' };
@@ -292,7 +313,9 @@ router.get('/invite/:inviteCode', protect, async (req, res) => {
   }
 });
 
-// POST /api/rooms/invite/:inviteCode — tham gia qua link/QR mời (áp dụng cả phòng riêng tư)
+// POST /api/rooms/invite/:inviteCode — tham gia qua link/QR mời (áp dụng cả phòng riêng tư).
+// Phòng riêng tư không tìm kiếm được nên link là cửa duy nhất — LUÔN ép vào hàng chờ duyệt bất
+// kể joinPolicy. Phòng công khai vẫn tôn trọng joinPolicy chủ phòng đã chọn (giống /join).
 router.post('/invite/:inviteCode', protect, async (req, res) => {
   try {
     const room = await Room.findOne({ inviteCode: req.params.inviteCode });
@@ -301,7 +324,7 @@ router.post('/invite/:inviteCode', protect, async (req, res) => {
       return res.status(410).json({ message: 'Link mời đã hết hạn (sau 7 ngày) — hãy xin chủ phòng link mới' });
     }
 
-    const { status } = await addMemberOrRequest(room, req.user, req.app.get('socketio'));
+    const { status } = await addMemberOrRequest(room, req.user, req.app.get('socketio'), room.isPrivate);
     if (status === 'pending') return res.json({ status: 'pending' });
 
     await room.populate('members', userFields.WITH_STATUS);
@@ -343,7 +366,7 @@ router.put('/:id/rotate-invite', protect, async (req, res) => {
   }
 });
 
-// PUT /api/rooms/:id/settings — đổi tên phòng / công khai-riêng tư (chỉ chủ phòng)
+// PUT /api/rooms/:id/settings — đổi tên phòng / công khai-riêng tư / cần duyệt hay không (chỉ chủ phòng)
 router.put('/:id/settings', protect, async (req, res) => {
   try {
     const room = await requireMembership(req, res, req.params.id);
@@ -353,13 +376,16 @@ router.put('/:id/settings', protect, async (req, res) => {
       return res.status(403).json({ message: 'Chỉ chủ phòng mới có thể đổi cài đặt phòng' });
     }
 
-    const { name, isPrivate } = req.body;
+    const { name, isPrivate, joinPolicy } = req.body;
     if (name !== undefined) {
       if (!name.trim()) return res.status(400).json({ message: 'Tên phòng không được để trống' });
       room.name = name.trim();
     }
     if (isPrivate !== undefined) {
       room.isPrivate = !!isPrivate;
+    }
+    if (joinPolicy !== undefined) {
+      room.joinPolicy = joinPolicy === 'approval' ? 'approval' : 'open';
     }
     await room.save();
 
@@ -369,10 +395,11 @@ router.put('/:id/settings', protect, async (req, res) => {
         roomId: room._id.toString(),
         name: room.name,
         isPrivate: room.isPrivate,
+        joinPolicy: room.joinPolicy,
       });
     }
 
-    res.json({ name: room.name, isPrivate: room.isPrivate });
+    res.json({ name: room.name, isPrivate: room.isPrivate, joinPolicy: room.joinPolicy });
   } catch (err) {
     sendServerError(res, err);
   }
@@ -698,6 +725,18 @@ const removeMemberFromRoom = async (room, userId, io, preferredNewOwnerId) => {
 
   if (remainingMembers.length === 0) {
     await Room.findByIdAndDelete(room._id);
+    // Vẫn phải báo cho chính người vừa rời (thành viên cuối cùng) — không thì client không biết
+    // phòng đã bị xóa, danh sách phòng (Sidebar) chỉ gỡ qua sự kiện 'room:removed' nên bị kẹt lại
+    // tới khi tải lại trang.
+    if (io) {
+      const allSockets = await io.fetchSockets();
+      allSockets
+        .filter(s => s.data.user && s.data.user._id.toString() === uidStr)
+        .forEach(s => {
+          s.emit('room:removed', { roomId: room._id.toString() });
+          s.leave(room._id.toString());
+        });
+    }
     return { deleted: true };
   }
 

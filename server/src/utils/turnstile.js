@@ -1,9 +1,9 @@
 // Xác minh Cloudflare Turnstile (CAPTCHA) — chặn bot ở form đăng ký/quên mật khẩu trước khi
 // chạm rate-limit theo IP/email. Theo mẫu graceful-fallback đã dùng ở services/moderation.js:
-// chưa cấu hình TURNSTILE_SECRET_KEY (dev local) thì bỏ qua verify, không bắt buộc mọi người
-// phải có tài khoản Cloudflare mới chạy được app.
+// chưa cấu hình CLOUDFLARE_TURNSTILE_SECRET_KEY (dev local) thì bỏ qua verify, không bắt buộc
+// mọi người phải có tài khoản Cloudflare mới chạy được app.
 const verifyTurnstile = async (token, remoteip) => {
-  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  const secretKey = process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY;
   if (!secretKey) return true; // Chưa cấu hình — coi như không bật Turnstile
 
   if (!token) return false;

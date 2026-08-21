@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Toast from '../common/Toast';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../context/AuthContext';
@@ -43,10 +43,32 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
     return off;
   }, [on]);
 
-  // Lắng nghe chấp nhận kết bạn realtime
+  // Lắng nghe chấp nhận kết bạn realtime — gỡ khỏi tab "Lời mời" nếu action xảy ra từ nơi khác
+  // (Profile Modal, hoặc tab khác cùng tài khoản), không thì "Lời mời kết bạn" ở đây bị kẹt lại
+  // tới khi tải lại trang.
   useEffect(() => {
-    const off = on('friend:request_accepted', () => {
+    const off = on('friend:request_accepted', ({ friendshipId }) => {
+      setRequests(prev => prev.filter(r => r._id !== friendshipId));
       api.get('/friends').then(res => setFriends(res.data));
+    });
+    return off;
+  }, [on]);
+
+  // Lắng nghe từ chối/hủy lời mời kết bạn realtime (từ Profile Modal hoặc tab khác)
+  useEffect(() => {
+    const offRejected = on('friend:request_rejected', ({ friendshipId }) => {
+      setRequests(prev => prev.filter(r => r._id !== friendshipId));
+    });
+    const offCancelled = on('friend:request_cancelled', ({ friendshipId }) => {
+      setRequests(prev => prev.filter(r => r._id !== friendshipId));
+    });
+    return () => { offRejected(); offCancelled(); };
+  }, [on]);
+
+  // Lắng nghe hủy kết bạn realtime (từ Profile Modal hoặc tab khác)
+  useEffect(() => {
+    const off = on('friend:unfriended', ({ friendshipId }) => {
+      setFriends(prev => prev.filter(f => f._id !== friendshipId));
     });
     return off;
   }, [on]);
@@ -69,18 +91,25 @@ export default function FriendList({ onSelectDM, onViewProfile }) {
     return () => { offOnline(); offOffline(); };
   }, [on]);
 
-  // Tìm kiếm user
-  const handleSearch = async (e) => {
-    const q = e.target.value;
-    setSearchQ(q);
-    if (q.trim().length < 2) { setSearchResults([]); return; }
-    try {
-      const { data } = await api.get(`/friends/search?q=${q}`);
-      setSearchResults(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  // Tìm kiếm user — debounce 400ms + bỏ qua response đến muộn không còn khớp searchQ hiện tại.
+  // Không thì gõ nhanh dễ bị request cũ (ký tự trước) trả về sau và ghi đè mất kết quả đúng —
+  // "lúc tìm được lúc không" tùy tốc độ gõ/độ trễ mạng.
+  const latestSearchQRef = useRef('');
+  useEffect(() => {
+    latestSearchQRef.current = searchQ;
+    if (searchQ.trim().length < 2) { setSearchResults([]); return; }
+    const timeout = setTimeout(async () => {
+      try {
+        const { data } = await api.get(`/friends/search?q=${searchQ}`);
+        if (latestSearchQRef.current === searchQ) setSearchResults(data);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 400);
+    return () => clearTimeout(timeout);
+  }, [searchQ]);
+
+  const handleSearch = (e) => setSearchQ(e.target.value);
 
   // Gửi lời mời kết bạn
   const sendRequest = async (userId) => {

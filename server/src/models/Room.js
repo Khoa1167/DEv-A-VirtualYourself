@@ -17,8 +17,12 @@ const roomSchema = new mongoose.Schema({
   },
   members:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   admins:      [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  // 'open': join ngay (browse-list hoặc link mời). 'approval': vào hàng chờ, chủ phòng/admin duyệt.
-  joinPolicy:      { type: String, enum: ['open', 'approval'], default: 'open' },
+  // Chỉ áp dụng cho luồng tìm-và-vào phòng công khai (/join): 'open' vào ngay, 'approval' vào
+  // hàng chờ. Tham gia qua link/QR mời (/invite/:code) LUÔN vào hàng chờ duyệt bất kể giá trị
+  // này — xem alwaysPending trong addMemberOrRequest (server/src/routes/rooms.js).
+  joinPolicy:  { type: String, enum: ['open', 'approval'], default: 'open' },
+  // Mọi lượt xin vào (browse-list phòng công khai hoặc link/QR mời) đều vào hàng chờ này,
+  // chủ phòng/admin duyệt mới thành thành viên — không có đường tắt tự vào.
   pendingRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   // Lời mời đích danh do admin/chủ phòng gửi qua "Thêm thành viên" — người được mời tự
   // accept/decline, khác pendingRequests (người ngoài tự xin vào, admin duyệt).

@@ -3,8 +3,8 @@ const https = require('https');
 const { protect } = require('../middleware/auth');
 const { checkRateWindow } = require('../utils/rateLimiter');
 
-// Simple Rate Limit map cho API check-link (tối đa 30 requests/phút/user)
-const rateLimitMap = new Map();
+// Rate limit cho API check-link (tối đa 30 requests/phút/user)
+const NS_CHECK_LINK = 'check-link';
 
 // ─── POST /api/security/check-link — Proxy kiểm tra Safe Browsing ──────────────
 router.post('/check-link', protect, async (req, res) => {
@@ -15,7 +15,7 @@ router.post('/check-link', protect, async (req, res) => {
     }
 
     const userId = req.user._id.toString();
-    const limit = checkRateWindow(rateLimitMap, userId, { maxCount: 30, windowMs: 60000 });
+    const limit = await checkRateWindow(NS_CHECK_LINK, userId, { maxCount: 30, windowMs: 60000 });
     if (limit.limited) {
       return res.status(429).json({ safe: true, warning: 'Rate limit exceeded' });
     }

@@ -1,7 +1,9 @@
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
+import { vi } from 'date-fns/locale';
 import { useState, useEffect } from 'react';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, Timer } from 'lucide-react';
 import Toast from '../common/Toast';
+import Modal from '../common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../hooks/useSocket';
 import useTimedMessage from '../../hooks/useTimedMessage';
@@ -19,6 +21,7 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
   const [showReportModal, setShowReportModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [showImageViewer, setShowImageViewer] = useState(false);
   const [toastMsg, showToast] = useTimedMessage(2500);
 
   const handleCopy = () => {
@@ -219,7 +222,7 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
                   src={message.content}
                   alt="Hình ảnh đính kèm"
                   className="max-w-[240px] max-h-[240px] rounded-2xl cursor-pointer object-cover border border-base-300 shadow-xs hover:opacity-90 transition-opacity"
-                  onClick={() => window.open(message.content, '_blank')}
+                  onClick={() => setShowImageViewer(true)}
                 />
               </div>
             ) : message.type === 'file' ? (
@@ -287,9 +290,21 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
             )}
           </div>
 
-          {/* Reactions hiển thị nhỏ ở dưới chân bong bóng chat */}
+          {/* Tin nhắn tự hủy — báo còn bao lâu thì biến mất */}
+          {message.expiresAt && (
+            <div
+              className={`flex items-center gap-1 mt-0.5 text-[10px] text-base-content/40 ${isOwn ? 'justify-end' : 'justify-start'}`}
+              title={`Tự hủy lúc ${format(new Date(message.expiresAt), 'HH:mm dd/MM')}`}
+            >
+              <Timer className="w-2.5 h-2.5" />
+              <span>Tự hủy sau {formatDistanceToNow(new Date(message.expiresAt), { locale: vi })}</span>
+            </div>
+          )}
+
+          {/* Reactions hiển thị nhỏ ở dưới chân bong bóng chat — bọc dòng thay vì tràn ngang khi
+              nhiều emoji khác nhau, giới hạn chiều rộng khớp bong bóng chat (max-w-[min(75vw,26rem)]) */}
           {message.reactions?.length > 0 && (
-            <div className={`flex gap-0.5 mt-1 ${isOwn ? 'justify-end' : 'justify-start'}`}>
+            <div className={`flex flex-wrap gap-0.5 mt-1 max-w-[min(75vw,26rem)] ${isOwn ? 'justify-end' : 'justify-start'}`}>
               {message.reactions.map(r => {
                 const hasReacted = r.users.some(u => {
                   const uid = typeof u === 'object' && u !== null ? u._id : u;
@@ -408,6 +423,12 @@ export default function MessageItem({ message, onReact, onReply, isDM, onForward
       </div>
 
       <Toast message={toastMsg} type="success" position="toast-bottom toast-center" alertClassName="text-xs py-2" />
+
+      {showImageViewer && (
+        <Modal onClose={() => setShowImageViewer(false)} boxClassName="p-0 bg-transparent shadow-none border-none max-w-3xl">
+          <img src={message.content} alt="Hình ảnh đính kèm" className="max-w-full max-h-[85vh] rounded-lg mx-auto" />
+        </Modal>
+      )}
 
       {showReportModal && (
         <ReportModal

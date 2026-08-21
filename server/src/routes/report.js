@@ -5,7 +5,7 @@ const Message = require('../models/Message');
 const Room = require('../models/Room');
 const User = require('../models/User');
 const { protect, requireAdmin } = require('../middleware/auth');
-const { encryptReportContent } = require('../utils/crypto');
+const { encryptReportContent, decryptReportContent } = require('../utils/crypto');
 const sendServerError = require('../utils/sendServerError');
 const userFields = require('../utils/publicUserFields');
 
@@ -141,7 +141,15 @@ router.get('/', protect, requireAdmin, async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(50);
 
-    res.json(reports);
+    // decryptedContent lưu at-rest mã hóa riêng bằng REPORT_ENCRYPTION_KEY — phải giải mã lại
+    // ở đây thì admin mới đọc được, nếu không API trả thẳng ciphertext vô nghĩa
+    const decryptedReports = reports.map(r => {
+      const obj = r.toObject();
+      obj.decryptedContent = decryptReportContent(obj.decryptedContent);
+      return obj;
+    });
+
+    res.json(decryptedReports);
   } catch (err) {
     sendServerError(res, err);
   }

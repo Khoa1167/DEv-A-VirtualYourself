@@ -13,6 +13,9 @@ export default function SetNickname() {
     minLength: 2,
   });
   const [error, showError]        = useTimedMessage();
+  // Lỗi conflict submit (kể cả do race condition — 2 người cùng đặt trùng nickname) — hiện
+  // chung khu vực với trạng thái kiểm tra realtime bên dưới, ưu tiên hơn vì mới hơn/chính xác hơn.
+  const [nicknameError, setNicknameError] = useState('');
   const [loading, setLoading]     = useState(false);
   const navigate                  = useNavigate();
   const location                  = useLocation();
@@ -22,6 +25,7 @@ export default function SetNickname() {
     e.preventDefault();
     if (status !== 'available') return;
     showError('');
+    setNicknameError('');
     setLoading(true);
     try {
       const { data } = await api.post('/auth/set-nickname', { nickname });
@@ -41,13 +45,20 @@ export default function SetNickname() {
 
       navigate('/');
     } catch (err) {
-      showError(err.response?.data?.message || 'Đặt nickname thất bại');
+      const { field, message } = err.response?.data || {};
+      if (field === 'nickname') {
+        setNicknameError(message);
+      } else {
+        showError(message || 'Đặt nickname thất bại');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const getStatusMsg = () => {
+    // Lỗi conflict từ server ưu tiên hơn — mất đi khi người dùng thật sự sửa lại ô này.
+    if (nicknameError) return <span className="text-xs text-error flex items-center gap-1 mt-1">❌ {nicknameError}</span>;
     if (status === 'checking') return <span className="text-xs text-info flex items-center gap-1 mt-1">⏳ Đang kiểm tra...</span>;
     if (status === 'available') return <span className="text-xs text-success flex items-center gap-1 mt-1">✅ Tên hiển thị có thể dùng</span>;
     if (status === 'taken') return <span className="text-xs text-error flex items-center gap-1 mt-1">❌ Tên hiển thị đã tồn tại, vui lòng chọn tên khác</span>;
@@ -72,12 +83,15 @@ export default function SetNickname() {
               </label>
               <input
                 className="input input-bordered focus:input-primary w-full transition-all duration-200"
-                placeholder="Nhập tên hiển thị..."
+                placeholder="Nhập tên hiển thị (2 - 20 ký tự)..."
                 value={nickname}
-                onChange={e => setNickname(e.target.value)}
+                onChange={e => {
+                  setNickname(e.target.value);
+                  if (nicknameError) setNicknameError('');
+                }}
                 required
                 minLength={2}
-                maxLength={30}
+                maxLength={20}
               />
               <div className="min-h-[20px]">{getStatusMsg()}</div>
             </div>

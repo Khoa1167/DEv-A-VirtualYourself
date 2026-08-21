@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Modal from '../common/Modal';
 import Toast from '../common/Toast';
+import PasswordInput from '../common/PasswordInput';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import useTimedMessage from '../../hooks/useTimedMessage';
@@ -90,8 +91,7 @@ export default function SettingsModal({ onClose }) {
             <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu hiện tại</label>
-                <input
-                  type="password"
+                <PasswordInput
                   className="input input-bordered input-sm focus:input-primary w-full"
                   value={pwForm.currentPassword}
                   onChange={e => setPwForm({ ...pwForm, currentPassword: e.target.value })}
@@ -101,8 +101,7 @@ export default function SettingsModal({ onClose }) {
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu mới</label>
-                <input
-                  type="password"
+                <PasswordInput
                   className="input input-bordered input-sm focus:input-primary w-full"
                   value={pwForm.newPassword}
                   onChange={e => setPwForm({ ...pwForm, newPassword: e.target.value })}
@@ -112,8 +111,7 @@ export default function SettingsModal({ onClose }) {
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Xác nhận mật khẩu mới</label>
-                <input
-                  type="password"
+                <PasswordInput
                   className="input input-bordered input-sm focus:input-primary w-full"
                   value={pwForm.confirmPassword}
                   onChange={e => setPwForm({ ...pwForm, confirmPassword: e.target.value })}

@@ -135,6 +135,19 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
     return off;
   }, [on]);
 
+  // Có người mới vào 1 nhóm mình đang ở — cập nhật danh sách thành viên, không thì khi mở
+  // ChatWindow của nhóm đó sau (khởi tạo roomMembers từ room prop lấy ở đây) sẽ thiếu người mới
+  // cho tới khi tải lại trang.
+  useEffect(() => {
+    const off = on('room:member_joined', ({ roomId, member }) => {
+      setRooms(prev => prev.map(r => r._id === roomId
+        ? { ...r, members: r.members?.some(m => m._id === member._id) ? r.members : [...(r.members || []), member] }
+        : r
+      ));
+    });
+    return off;
+  }, [on]);
+
   // Cập nhật tin nhắn cuối khi có tin nhắn mới, bị xóa hoặc chỉnh sửa
   useEffect(() => {
     const offNew = on('message:new', async (msg) => {
@@ -190,7 +203,7 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
       const { data } = await api.post('/rooms', {
         name: newRoomName,
         isPrivate: !newRoomIsPublic,
-        joinPolicy: newRoomNeedsApproval ? 'approval' : 'open',
+        joinPolicy: newRoomIsPublic && newRoomNeedsApproval ? 'approval' : 'open',
       });
       setRooms(prev => prev.find(r => r._id === data._id) ? prev : [data, ...prev]);
       setNewRoomName('');
@@ -302,10 +315,12 @@ export default function Sidebar({ activeRoom, onSelectRoom }) {
               <input type="checkbox" className="checkbox checkbox-xs" checked={newRoomIsPublic} onChange={e => setNewRoomIsPublic(e.target.checked)} />
               Phòng công khai (ai cũng tìm thấy ở mục tìm kiếm)
             </label>
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input type="checkbox" className="checkbox checkbox-xs" checked={newRoomNeedsApproval} onChange={e => setNewRoomNeedsApproval(e.target.checked)} />
-              Cần duyệt khi có người xin vào
-            </label>
+            {newRoomIsPublic && (
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input type="checkbox" className="checkbox checkbox-xs" checked={newRoomNeedsApproval} onChange={e => setNewRoomNeedsApproval(e.target.checked)} />
+                Cần duyệt khi có người xin vào
+              </label>
+            )}
             {createError && <p className="text-error text-[11px]">{createError}</p>}
           </div>
         )}

@@ -1,0 +1,21 @@
+FROM node:22-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+ARG VITE_API_URL
+ARG VITE_SERVER_URL
+ARG VITE_CLOUDFLARE_TURNSTILE_SITE_KEY
+ENV VITE_API_URL=$VITE_API_URL \
+    VITE_SERVER_URL=$VITE_SERVER_URL \
+    VITE_CLOUDFLARE_TURNSTILE_SITE_KEY=$VITE_CLOUDFLARE_TURNSTILE_SITE_KEY
+
+RUN npm run build
+
+EXPOSE 5173
+
+CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "5173"]

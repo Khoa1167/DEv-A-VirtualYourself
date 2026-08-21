@@ -20,12 +20,12 @@ const loadTurnstile = () => {
   return scriptPromise;
 };
 
-// Widget CAPTCHA Cloudflare Turnstile — không hiện gì nếu chưa cấu hình VITE_TURNSTILE_SITE_KEY
+// Widget CAPTCHA Cloudflare Turnstile — không hiện gì nếu chưa cấu hình VITE_CLOUDFLARE_TURNSTILE_SITE_KEY
 // (cho phép chạy dev local không cần tài khoản Cloudflare, khớp fallback phía server).
 export default function Turnstile({ onVerify }) {
   const containerRef = useRef(null);
   const widgetIdRef = useRef(null);
-  const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY;
+  const siteKey = import.meta.env.VITE_CLOUDFLARE_TURNSTILE_SITE_KEY;
 
   useEffect(() => {
     if (!siteKey) return;

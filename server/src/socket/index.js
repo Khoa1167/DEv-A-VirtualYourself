@@ -8,16 +8,14 @@ const { checkRateWindow } = require('../utils/rateLimiter');
 const userFields = require('../utils/publicUserFields');
 
 
+// Tin nhắn tự hủy chỉ nhận đúng 4 mốc cho phép — giá trị lạ coi như không đặt TTL, không lỗi.
+const DISAPPEARING_TTL_OPTIONS = [60, 3600, 86400, 604800]; // 1 phút / 1 giờ / 24 giờ / 7 ngày
+
 const setupSocket = (io) => {
-  /**
-   * Rate Limiting per userId: tối đa 8 tin nhắn / 5 giây (cộng dồn qua tất cả socket/tab của cùng user).
-   * 
-   * [GHI CHÚ KIẾN TRÚC SCALABILITY]:
-   * Hiện tại userMessageRateMap là in-memory Map cho single-instance Node.js process.
-   * Khi ứng dụng scale ngang (nhiều server instance đứng sau Load Balancer), bộ đếm này
-   * sẽ chuyển sang sử dụng Redis (`INCR` + `EXPIRE` lệnh nguyên tố) để đếm tập trung giữa các instances.
-   */
-  const userMessageRateMap = new Map();
+  // Rate Limiting per userId: tối đa 8 tin nhắn / 5 giây (cộng dồn qua tất cả socket/tab của cùng
+  // user). Dùng chung Redis khi có REDIS_URL (đếm tập trung giữa các instance), fallback in-memory
+  // khi không — xem server/src/utils/rateLimiter.js.
+  const NS_MESSAGE_SEND = 'message-send';
 
   io.use(async (socket, next) => {
     try {
@@ -50,11 +48,11 @@ const setupSocket = (io) => {
 
     // ===== EVENTS: TIN NHẮN =====
 
-    socket.on('message:send', async ({ roomId, content, iv, tag, encryptedKeys, type, replyTo, fileName, forwardedFrom, scheme, senderDeviceId, epoch }) => {
+    socket.on('message:send', async ({ roomId, content, iv, tag, encryptedKeys, type, replyTo, fileName, forwardedFrom, scheme, senderDeviceId, epoch, ttlSeconds }) => {
       try {
         // Rate Limiting Check theo userId
         const uIdStr = userId.toString();
-        const msgLimit = checkRateWindow(userMessageRateMap, uIdStr, { maxCount: 8, windowMs: 5000 });
+        const msgLimit = await checkRateWindow(NS_MESSAGE_SEND, uIdStr, { maxCount: 8, windowMs: 5000 });
 
         if (msgLimit.limited) {
           const retryAfter = Math.ceil(msgLimit.retryAfterMs / 1000);
@@ -77,6 +75,10 @@ const setupSocket = (io) => {
           }
         }
 
+        // Tin nhắn tự hủy: người gửi tự chọn lúc gửi, khóa cứng ngay tại đây — không route/người
+        // khác nào sau này đổi lại được (xem ghi chú expires trong Message.js)
+        const validTtl = DISAPPEARING_TTL_OPTIONS.includes(ttlSeconds) ? ttlSeconds : null;
+
         // Zero-Knowledge Relay: Lưu trực tiếp bản mã từ Client
         const msg = await Message.create({
           content: content || '',
@@ -92,6 +94,7 @@ const setupSocket = (io) => {
           replyTo: replyTo || null,
           fileName: fileName || null,
           forwardedFrom: forwardedFrom || null,
+          expiresAt: validTtl ? new Date(Date.now() + validTtl * 1000) : null,
         });
 
         await msg.populate('sender', userFields.BASIC);
@@ -141,14 +144,19 @@ const setupSocket = (io) => {
         const room = await Room.findOne({ _id: msg.room, members: userId }).select('_id');
         if (!room) return socket.emit('error', { message: 'Không có quyền' });
 
-        const idx = msg.reactions.findIndex(r => r.emoji === emoji);
-        if (idx > -1) {
-          const uIdx = msg.reactions[idx].users.findIndex(u => u.toString() === userId.toString());
-          if (uIdx > -1) msg.reactions[idx].users.splice(uIdx, 1);
-          else msg.reactions[idx].users.push(userId);
-          if (msg.reactions[idx].users.length === 0) msg.reactions.splice(idx, 1);
-        } else {
-          msg.reactions.push({ emoji, users: [userId] });
+        // Mỗi người chỉ giữ tối đa 1 emoji/tin nhắn — gỡ khỏi nhóm emoji cũ (nếu có) trước khi
+        // xử lý. Bấm lại đúng emoji đang giữ = bỏ react; bấm emoji khác = chuyển sang emoji đó.
+        const prevIdx = msg.reactions.findIndex(r => r.users.some(u => u.toString() === userId.toString()));
+        const hadSameEmoji = prevIdx > -1 && msg.reactions[prevIdx].emoji === emoji;
+        if (prevIdx > -1) {
+          msg.reactions[prevIdx].users = msg.reactions[prevIdx].users.filter(u => u.toString() !== userId.toString());
+          if (msg.reactions[prevIdx].users.length === 0) msg.reactions.splice(prevIdx, 1);
+        }
+
+        if (!hadSameEmoji) {
+          const idx = msg.reactions.findIndex(r => r.emoji === emoji);
+          if (idx > -1) msg.reactions[idx].users.push(userId);
+          else msg.reactions.push({ emoji, users: [userId] });
         }
 
         await msg.save();

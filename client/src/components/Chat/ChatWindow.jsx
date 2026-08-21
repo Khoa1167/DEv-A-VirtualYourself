@@ -30,7 +30,6 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   const [messages, setMessages]       = useState([]);
   const [typing, setTyping]           = useState([]);
   const [replyTo, setReplyTo]         = useState(null);
-  const [page, setPage]               = useState(1);
   const [hasMore, setHasMore]         = useState(true);
   const [dmPartnerOnline, setDmPartnerOnline] = useState(
     () => getDMPartner(room, user)?.isOnline || false
@@ -47,9 +46,11 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   // Tên/công khai-riêng tư — khởi tạo từ prop, cập nhật realtime qua 'room:settings_updated'
   const [roomName, setRoomName] = useState(room?.name);
   const [roomIsPrivate, setRoomIsPrivate] = useState(room?.isPrivate);
+  const [roomJoinPolicy, setRoomJoinPolicy] = useState(room?.joinPolicy);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsNameInput, setSettingsNameInput] = useState('');
   const [settingsPrivateInput, setSettingsPrivateInput] = useState(false);
+  const [settingsApprovalInput, setSettingsApprovalInput] = useState(false);
   const [showMembers, setShowMembers] = useState(true);
   const [inviteCode, setInviteCode] = useState(room?.inviteCode);
   const [inviteCodeExpiresAt, setInviteCodeExpiresAt] = useState(room?.inviteCodeExpiresAt);
@@ -75,6 +76,8 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   const bottomRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const containerRef = useRef(null);
+  // Tin nhắn tự hủy — id đã hẹn giờ ẩn rồi, tránh đặt setTimeout trùng mỗi lần messages đổi
+  const scheduledExpiryRef = useRef(new Set());
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -127,28 +130,23 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   };
 
   const fetchRoomDevicePublicKeys = async (roomToUse) => {
-    const allDevicePublicKeys = [];
-    if (!roomToUse?.members) return allDevicePublicKeys;
+    if (!roomToUse?.members?.length) return [];
 
-    for (const member of roomToUse.members) {
-      try {
-        const { data: devices } = await api.get(`/users/${member._id}/devices`);
-        if (Array.isArray(devices)) {
-          allDevicePublicKeys.push(...devices);
-        }
-      } catch (err) {
-        console.warn(`Lỗi khi lấy public key của member ${member._id}:`, err);
-      }
+    try {
+      const userIds = roomToUse.members.map(m => m._id);
+      const { data: devices } = await api.post('/users/devices/batch', { userIds });
+      return Array.isArray(devices) ? devices : [];
+    } catch (err) {
+      console.warn('Lỗi khi lấy public key thiết bị của phòng:', err);
+      return [];
     }
-
-    return allDevicePublicKeys;
   };
 
   // Load tin nhắn khi chọn phòng mới
   useEffect(() => {
     if (!room) return;
 
-    api.get(`/rooms/${room._id}/messages?page=1&limit=30`)
+    api.get(`/rooms/${room._id}/messages?limit=30`)
       .then(async res => {
         const decrypted = await processDecryption(res.data);
         setMessages(decrypted);
@@ -157,19 +155,37 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       });
   }, [room]);
 
+  // Tin nhắn tự hủy — tự ẩn khỏi danh sách đúng lúc hết hạn, không cần F5 (MongoDB TTL index
+  // chỉ lo dọn dữ liệu vật lý phía server, việc ẩn ngay trên UI phải tự lo ở client).
+  useEffect(() => {
+    const timers = [];
+    messages.forEach(m => {
+      if (!m.expiresAt || scheduledExpiryRef.current.has(m._id)) return;
+      scheduledExpiryRef.current.add(m._id);
+      const msUntilExpiry = new Date(m.expiresAt).getTime() - Date.now();
+      const hide = () => setMessages(prev => prev.filter(x => x._id !== m._id));
+      if (msUntilExpiry <= 0) { hide(); return; }
+      timers.push(setTimeout(hide, msUntilExpiry));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [messages]);
+
   // Lắng nghe các sự kiện WebSocket
   useEffect(() => {
     if (!room) return;
 
     emit('room:join', room._id);
 
-    // Nhận tin nhắn mới
+    // Nhận tin nhắn mới — chỉ tự cuộn xuống khi chính mình là người gửi (vừa bấm gửi), để không
+    // kéo người đang cuộn lên đọc lịch sử bị giật xuống mỗi khi người khác nhắn.
     const offNew = on('message:new', async (msg) => {
       if (msg.room?.toString() === room._id?.toString()) {
         const decryptedText = await decryptIncomingMessage(msg);
         const processedMsg = { ...msg, decryptedText, content: decryptedText };
         setMessages(prev => [...prev, processedMsg]);
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (msg.sender?._id?.toString() === user._id?.toString()) {
+          bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
       }
     });
 
@@ -263,17 +279,18 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       if (newOwnerId) setOwnerId(newOwnerId);
     });
 
-    // Có người xin vào phòng (joinPolicy 'approval') — thêm vào danh sách chờ duyệt đang hiển thị
+    // Có người xin vào phòng — thêm vào danh sách chờ duyệt đang hiển thị
     const offJoinRequested = on('room:join_requested', ({ roomId: rId, requester }) => {
       if (rId?.toString() !== room._id?.toString()) return;
       setJoinRequests(prev => prev.some(r => r._id === requester._id) ? prev : [...prev, requester]);
     });
 
-    // Chủ phòng đổi tên hoặc công khai/riêng tư
-    const offSettingsUpdated = on('room:settings_updated', ({ roomId: rId, name, isPrivate }) => {
+    // Chủ phòng đổi tên, công khai/riêng tư, hoặc cần duyệt hay không
+    const offSettingsUpdated = on('room:settings_updated', ({ roomId: rId, name, isPrivate, joinPolicy }) => {
       if (rId?.toString() !== room._id?.toString()) return;
       setRoomName(name);
       setRoomIsPrivate(isPrivate);
+      setRoomJoinPolicy(joinPolicy);
     });
 
     // Typing indicator
@@ -452,6 +469,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   const handleOpenSettings = () => {
     setSettingsNameInput(roomName || '');
     setSettingsPrivateInput(!roomIsPrivate); // hiện UI theo "Công khai" (đảo ngược isPrivate cho dễ hiểu)
+    setSettingsApprovalInput(roomJoinPolicy === 'approval');
     setShowSettingsModal(true);
   };
 
@@ -460,6 +478,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
       await api.put(`/rooms/${room._id}/settings`, {
         name: settingsNameInput,
         isPrivate: !settingsPrivateInput,
+        joinPolicy: settingsPrivateInput && settingsApprovalInput ? 'approval' : 'open',
       });
       setShowSettingsModal(false);
     } catch (err) {
@@ -516,7 +535,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
     setConfirmAction(null);
   };
 
-  const handleSend = useCallback(async (content, replyToId, type = 'text', fileName = null) => {
+  const handleSend = useCallback(async (content, replyToId, type = 'text', fileName = null, ttlSeconds = null) => {
     try {
       // Dùng roomMembers (state sống, cập nhật realtime qua room:member_left/joined) thay vì
       // prop room (snapshot lúc mở phòng) — nếu không, Sender Key epoch mới vẫn bị wrap thừa
@@ -528,7 +547,8 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
         ...payload,
         type,
         replyTo: replyToId,
-        fileName
+        fileName,
+        ttlSeconds,
       });
 
       setReplyTo(null);
@@ -594,10 +614,11 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
   }, [emit, room, roomMembers, currentEpoch, showError]);
 
   const loadMore = async () => {
-    const nextPage = page + 1;
-    const res = await api.get(`/rooms/${room._id}/messages?page=${nextPage}&limit=30`);
-    setMessages(prev => [...res.data, ...prev]);
-    setPage(nextPage);
+    if (messages.length === 0) return;
+    const cursor = messages[0].createdAt;
+    const res = await api.get(`/rooms/${room._id}/messages?before=${encodeURIComponent(cursor)}&limit=30`);
+    const decrypted = await processDecryption(res.data);
+    setMessages(prev => [...decrypted, ...prev]);
     setHasMore(res.data.length === 30);
   };
 
@@ -840,6 +861,7 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
             onTyping={handleTyping}
             replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
+            roomId={room._id}
           />
         </div>
       </div>
@@ -1089,6 +1111,22 @@ export default function ChatWindow({ room, onBackToFriends, onInitiateCall, onVi
                 onChange={e => setSettingsPrivateInput(e.target.checked)}
               />
             </label>
+
+            {settingsPrivateInput && (
+              <label className="flex items-center justify-between text-xs cursor-pointer bg-base-200 rounded-xl px-3 py-2.5">
+                <span>
+                  <span className="font-semibold">Cần duyệt khi có người xin vào</span>
+                  <br />
+                  <span className="text-base-content/50">Bạn phải duyệt từng người tìm thấy phòng và xin vào</span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm toggle-primary"
+                  checked={settingsApprovalInput}
+                  onChange={e => setSettingsApprovalInput(e.target.checked)}
+                />
+              </label>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-2 mt-4">

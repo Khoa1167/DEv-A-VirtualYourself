@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Modal from '../common/Modal';
+import Toast from '../common/Toast';
+import PasswordInput from '../common/PasswordInput';
+import useTimedMessage from '../../hooks/useTimedMessage';
 import { getDeviceId, getPrivateKey, getPublicKey, exportPrivateKeyEncrypted, importPrivateKeyFromBackup, exportPublicKeyFromPrivateKey, storePrivateKey, storePublicKey } from '../../utils/e2ee';
 
 export default function KeyBackupModal({ onClose }) {
@@ -8,7 +11,10 @@ export default function KeyBackupModal({ onClose }) {
   const [backupString, setBackupString] = useState('');
   const [importedBackup, setImportedBackup] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ type: '', text: '' });
+  const [error, showError] = useTimedMessage();
+  const [success, showSuccess] = useTimedMessage();
+
+  const clearMessages = () => { showError(''); showSuccess(''); };
 
   const getPassphraseStrength = (pw) => {
     if (!pw) return { text: '', score: 0 };
@@ -27,10 +33,10 @@ export default function KeyBackupModal({ onClose }) {
 
   const handleExportBackup = async (e) => {
     e.preventDefault();
-    setMessage({ type: '', text: '' });
+    clearMessages();
 
     if (passphrase.length < 12) {
-      setMessage({ type: 'error', text: 'Passphrase bảo vệ tệp sao lưu phải có ít nhất 12 ký tự.' });
+      showError('Passphrase bảo vệ tệp sao lưu phải có ít nhất 12 ký tự.');
       return;
     }
 
@@ -45,9 +51,9 @@ export default function KeyBackupModal({ onClose }) {
       const publicKeyJWK = await getPublicKey(deviceId);
       const encryptedBackup = await exportPrivateKeyEncrypted(privateKey, publicKeyJWK, passphrase);
       setBackupString(encryptedBackup);
-      setMessage({ type: 'success', text: 'Tạo bản sao lưu mã hóa thành công!' });
+      showSuccess('Tạo bản sao lưu mã hóa thành công!');
     } catch (err) {
-      setMessage({ type: 'error', text: err.message || 'Tạo bản sao lưu thất bại.' });
+      showError(err.message || 'Tạo bản sao lưu thất bại.');
     } finally {
       setLoading(false);
     }
@@ -55,10 +61,10 @@ export default function KeyBackupModal({ onClose }) {
 
   const handleImportBackup = async (e) => {
     e.preventDefault();
-    setMessage({ type: '', text: '' });
+    clearMessages();
 
     if (!importedBackup.trim() || !passphrase) {
-      setMessage({ type: 'error', text: 'Vui lòng nhập chuỗi sao lưu và passphrase giải mã.' });
+      showError('Vui lòng nhập chuỗi sao lưu và passphrase giải mã.');
       return;
     }
 
@@ -78,9 +84,9 @@ export default function KeyBackupModal({ onClose }) {
       if (publicKeyToStore) {
         await storePublicKey(deviceId, publicKeyToStore);
       }
-      setMessage({ type: 'success', text: 'Khôi phục khóa Private Key thành công!' });
+      showSuccess('Khôi phục khóa Private Key thành công!');
     } catch (err) {
-      setMessage({ type: 'error', text: err.message || 'Giải mã tệp sao lưu thất bại.' });
+      showError(err.message || 'Giải mã tệp sao lưu thất bại.');
     } finally {
       setLoading(false);
     }
@@ -106,7 +112,7 @@ export default function KeyBackupModal({ onClose }) {
           <button
             type="button"
             role="tab"
-            onClick={() => { setActiveTab('backup'); setMessage({ type: '', text: '' }); }}
+            onClick={() => { setActiveTab('backup'); clearMessages(); }}
             className={`tab flex-1 font-bold ${activeTab === 'backup' ? 'tab-active' : ''}`}
           >
             Sao lưu
@@ -114,27 +120,21 @@ export default function KeyBackupModal({ onClose }) {
           <button
             type="button"
             role="tab"
-            onClick={() => { setActiveTab('restore'); setMessage({ type: '', text: '' }); }}
+            onClick={() => { setActiveTab('restore'); clearMessages(); }}
             className={`tab flex-1 font-bold ${activeTab === 'restore' ? 'tab-active' : ''}`}
           >
             Khôi phục
           </button>
         </div>
 
-        {message.text && (
-          <div className={`alert py-2 px-3 text-xs font-semibold rounded-xl mb-4 ${
-            message.type === 'error' ? 'alert-error' : 'alert-success'
-          }`}>
-            <span>{message.text}</span>
-          </div>
-        )}
+        <Toast message={error} type="error" variant="banner" alertClassName="py-2 px-3 text-xs font-semibold rounded-xl mb-4" />
+        <Toast message={success} type="success" variant="banner" alertClassName="py-2 px-3 text-xs font-semibold rounded-xl mb-4" />
 
         {activeTab === 'backup' ? (
           <form onSubmit={handleExportBackup} className="flex flex-col gap-3">
             <div className="form-control flex flex-col gap-1">
               <label className="text-xs font-bold text-base-content/70">Passphrase bảo vệ (Tối thiểu 12 ký tự)</label>
-              <input
-                type="password"
+              <PasswordInput
                 className="input input-bordered input-sm w-full"
                 placeholder="Nhập mật khẩu passphrase mạnh..."
                 value={passphrase}
@@ -184,8 +184,7 @@ export default function KeyBackupModal({ onClose }) {
 
             <div className="form-control flex flex-col gap-1">
               <label className="text-xs font-bold text-base-content/70">Passphrase giải mã</label>
-              <input
-                type="password"
+              <PasswordInput
                 className="input input-bordered input-sm w-full"
                 placeholder="Nhập passphrase đã cài đặt khi backup..."
                 value={passphrase}

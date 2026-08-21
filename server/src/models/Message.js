@@ -19,6 +19,10 @@ const messageSchema = new mongoose.Schema({
   scheme:         { type: String, enum: ['rsa-per-device', 'sender-key'], default: 'rsa-per-device' },
   senderDeviceId: { type: String, default: null },
   epoch:          { type: Number, default: null },
+  // Tin nhắn tự hủy — do NGƯỜI GỬI chọn lúc gửi (không ai khác đổi được), khóa cứng ngay lúc tạo.
+  // expires: 0 tạo TTL index trên chính giá trị Date lưu ở đây — MongoDB tự xóa document đúng lúc
+  // expiresAt (background thread quét ~60s/lần, chấp nhận trễ vài chục giây so với giờ hiển thị).
+  expiresAt: { type: Date, default: null, expires: 0 },
 }, { timestamps: true });
 
 // Truy vấn nặng nhất và thường xuyên nhất của cả app: GET /:id/messages lọc theo room + sắp xếp

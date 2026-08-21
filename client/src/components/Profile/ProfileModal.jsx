@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import Toast from '../common/Toast';
 import Modal from '../common/Modal';
+import PasswordInput from '../common/PasswordInput';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import useTimedMessage from '../../hooks/useTimedMessage';
@@ -293,9 +294,11 @@ export default function ProfileModal({ onClose }) {
                     <>
                       <input
                         className="input input-bordered input-sm focus:input-primary w-full"
+                        placeholder="Tên hiển thị (2 - 20 ký tự)"
                         value={form.nickname}
                         onChange={e => setForm(prev => ({ ...prev, nickname: e.target.value }))}
                         minLength={2}
+                        maxLength={20}
                       />
                       <div className="min-h-[16px]">{getNicknameMsg()}</div>
                     </>
@@ -482,8 +485,7 @@ export default function ProfileModal({ onClose }) {
 
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-base-content/50 uppercase tracking-wider">Mật khẩu hiện tại</label>
-                    <input
-                      type="password"
+                    <PasswordInput
                       required
                       className="input input-bordered input-sm focus:input-primary w-full"
                       value={emailForm.currentPassword}

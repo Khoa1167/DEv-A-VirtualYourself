@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import Turnstile from '../common/Turnstile';
 import Toast from '../common/Toast';
+import PasswordInput from '../common/PasswordInput';
 import useTimedMessage from '../../hooks/useTimedMessage';
 
-const turnstileEnabled = !!import.meta.env.VITE_TURNSTILE_SITE_KEY;
+const turnstileEnabled = !!import.meta.env.VITE_CLOUDFLARE_TURNSTILE_SITE_KEY;
 
 export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
   const [step, setStep]                 = useState(1); // 1: Email, 2: OTP, 3: New Password
@@ -166,6 +167,9 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
             </div>
 
             <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+            {turnstileEnabled && !turnstileToken && (
+              <span className="text-xs text-error flex items-center justify-center gap-1">❌ Vui lòng xác thực CAPTCHA trước khi tiếp tục</span>
+            )}
 
             <button
               type="submit"
@@ -220,7 +224,12 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
             </button>
 
             {resendCooldown === 0 && (
-              <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+              <div>
+                <Turnstile key={turnstileResetKey} onVerify={setTurnstileToken} />
+                {turnstileEnabled && !turnstileToken && (
+                  <span className="text-xs text-error flex items-center justify-center gap-1 mt-1">❌ Vui lòng xác thực CAPTCHA trước khi gửi lại</span>
+                )}
+              </div>
             )}
 
             <div className="flex items-center justify-between text-xs text-base-content/60 mt-2">
@@ -254,8 +263,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
                   Mật khẩu mới
                 </span>
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 className="input input-bordered focus:input-primary w-full text-sm"
                 placeholder="Tối thiểu 6 ký tự..."
                 value={newPassword}
@@ -270,8 +278,7 @@ export default function ForgotPasswordModal({ isOpen, onClose, onSuccess }) {
                   Xác nhận mật khẩu mới
                 </span>
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 className="input input-bordered focus:input-primary w-full text-sm"
                 placeholder="Nhập lại mật khẩu mới..."
                 value={confirmPw}

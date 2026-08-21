@@ -1,12 +1,44 @@
 import { useState, useRef, useEffect } from 'react';
-import { Paperclip, Mic, Send, Trash2 } from 'lucide-react';
+import { Paperclip, Mic, Send, Trash2, Timer } from 'lucide-react';
 import Toast from '../common/Toast';
 import api from '../../services/api';
 import { scanLinksInText } from '../../utils/securityScan';
 
-export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply }) {
+// Tin nhắn tự hủy — chỉ người gửi chọn lúc gửi, không đồng bộ server/người khác (xem CLAUDE.md
+// phần Disappearing Messages). Nhớ tạm theo từng phòng qua localStorage cho tiện, không bắt buộc.
+const TTL_OPTIONS = [
+  { label: 'Tắt', value: null },
+  { label: '1 phút', value: 60 },
+  { label: '1 giờ', value: 3600 },
+  { label: '24 giờ', value: 86400 },
+  { label: '7 ngày', value: 604800 },
+];
+
+export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply, roomId }) {
   const [content, setContent]   = useState('');
   const typingTimeout           = useRef(null);
+  const readSavedTtl = (rid) => {
+    if (!rid) return null;
+    const saved = localStorage.getItem(`disappearing_ttl_${rid}`);
+    return saved ? Number(saved) : null;
+  };
+  const [ttlSeconds, setTtlSeconds] = useState(() => readSavedTtl(roomId));
+  const [showTtlMenu, setShowTtlMenu] = useState(false);
+  // Chuyển phòng thì đọc lại lựa chọn đã lưu của phòng mới — điều chỉnh state ngay lúc render
+  // (không dùng effect) để tránh setState đồng bộ trong effect gây render lồng không cần thiết.
+  const [ttlRoomId, setTtlRoomId] = useState(roomId);
+  if (roomId !== ttlRoomId) {
+    setTtlRoomId(roomId);
+    setTtlSeconds(readSavedTtl(roomId));
+  }
+
+  const handlePickTtl = (value) => {
+    setTtlSeconds(value);
+    setShowTtlMenu(false);
+    if (!roomId) return;
+    if (value) localStorage.setItem(`disappearing_ttl_${roomId}`, String(value));
+    else localStorage.removeItem(`disappearing_ttl_${roomId}`);
+  };
 
   // States cho tính năng ghi âm
   const [isRecording, setIsRecording] = useState(false);
@@ -96,7 +128,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
             headers: { 'Content-Type': 'multipart/form-data' }
           });
 
-          onSend(res.data.url, replyTo?._id, 'image', item.file.name);
+          onSend(res.data.url, replyTo?._id, 'image', item.file.name, ttlSeconds);
 
           if (item.previewUrl) {
             URL.revokeObjectURL(item.previewUrl);
@@ -140,7 +172,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
           }
         }
 
-        onSend(trimmed, replyTo?._id, 'text');
+        onSend(trimmed, replyTo?._id, 'text', null, ttlSeconds);
         setContent('');
       }
 
@@ -154,7 +186,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
             headers: { 'Content-Type': 'multipart/form-data' }
           });
 
-          onSend(res.data.url, replyTo?._id, 'file', item.file.name);
+          onSend(res.data.url, replyTo?._id, 'file', item.file.name, ttlSeconds);
 
           if (item.previewUrl) {
             URL.revokeObjectURL(item.previewUrl);
@@ -246,7 +278,7 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
         const audioUrl = res.data.url;
 
         // Gọi hàm onSend với type là 'audio'
-        onSend(audioUrl, replyTo?._id, 'audio');
+        onSend(audioUrl, replyTo?._id, 'audio', null, ttlSeconds);
 
       } catch (err) {
         console.error('Lỗi khi tải tệp âm thanh lên:', err);
@@ -389,6 +421,34 @@ export default function MessageInput({ onSend, onTyping, replyTo, onCancelReply 
           >
             <Mic className="w-4 h-4" />
           </button>
+
+          {/* Tin nhắn tự hủy — chỉ mình chọn, chỉ áp dụng cho tin sắp gửi */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowTtlMenu(v => !v)}
+              className={`btn btn-circle btn-ghost btn-sm mr-1 ${
+                ttlSeconds ? 'text-primary bg-primary/10' : 'text-base-content/60 hover:text-primary'
+              }`}
+              title={ttlSeconds ? `Tin nhắn tự hủy sau ${TTL_OPTIONS.find(o => o.value === ttlSeconds)?.label}` : 'Tin nhắn tự hủy'}
+            >
+              <Timer className="w-4 h-4" />
+            </button>
+            {showTtlMenu && (
+              <ul className="absolute bottom-full mb-2 left-0 menu menu-sm bg-base-100 border border-base-300 rounded-xl shadow-lg w-36 p-1 z-20">
+                {TTL_OPTIONS.map(opt => (
+                  <li key={opt.label}>
+                    <a
+                      onClick={() => handlePickTtl(opt.value)}
+                      className={ttlSeconds === opt.value ? 'active font-semibold' : ''}
+                    >
+                      {opt.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           <input
             className="input input-ghost bg-transparent focus:outline-none flex-1 w-full text-sm"
