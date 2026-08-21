@@ -6,6 +6,8 @@ const { encrypt, decrypt } = require('../utils/crypto');
 const { verifyJwt } = require('../utils/jwtKeys');
 const { checkRateWindow } = require('../utils/rateLimiter');
 const userFields = require('../utils/publicUserFields');
+const sendSocketError = require('../utils/sendSocketError');
+const logger = require('../config/logger');
 
 
 // Tin nhắn tự hủy chỉ nhận đúng 4 mốc cho phép — giá trị lạ coi như không đặt TTL, không lỗi.
@@ -33,7 +35,7 @@ const setupSocket = (io) => {
 
   io.on('connection', async (socket) => {
     const userId = socket.user._id;
-    console.log(`🟢 ${socket.user.username} connected`);
+    logger.info({ userId, username: socket.user.username }, `🟢 ${socket.user.username} connected`);
 
     // Đánh dấu online
     await User.findByIdAndUpdate(userId, { isOnline: true });
@@ -43,7 +45,7 @@ const setupSocket = (io) => {
     const rooms = await Room.find({ members: userId });
     rooms.forEach(r => {
       socket.join(r._id.toString());
-      console.log(`🟢 ${socket.user.username} joined socket room: ${r._id}`);
+      logger.debug(`🟢 ${socket.user.username} joined socket room: ${r._id}`);
     });
 
     // ===== EVENTS: TIN NHẮN =====
@@ -119,7 +121,7 @@ const setupSocket = (io) => {
         const clientMsg = msg.toObject({ flattenMaps: true });
         io.to(roomId).emit('message:new', clientMsg);
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -165,7 +167,7 @@ const setupSocket = (io) => {
           messageId, reactions: msg.reactions,
         });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -205,7 +207,7 @@ const setupSocket = (io) => {
           isEdited: true
         });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -221,7 +223,7 @@ const setupSocket = (io) => {
         await msg.save();
         io.to(msg.room.toString()).emit('message:deleted', { messageId });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -269,7 +271,7 @@ const setupSocket = (io) => {
           });
         });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -288,7 +290,7 @@ const setupSocket = (io) => {
           });
         });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -306,7 +308,7 @@ const setupSocket = (io) => {
           });
         });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -325,7 +327,7 @@ const setupSocket = (io) => {
           });
         });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -343,7 +345,7 @@ const setupSocket = (io) => {
           });
         });
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -362,7 +364,7 @@ const setupSocket = (io) => {
           receiverSocket.emit('friend:request_received', friendship);
         }
       } catch (err) {
-        socket.emit('error', { message: err.message });
+        sendSocketError(socket, err);
       }
     });
 
@@ -385,9 +387,9 @@ const setupSocket = (io) => {
           lastSeen: new Date(),
         });
         socket.broadcast.emit('user:offline', { userId });
-        console.log(`🔴 ${socket.user.username} disconnected`);
+        logger.info({ userId, username: socket.user.username }, `🔴 ${socket.user.username} disconnected`);
       } else {
-        console.log(`🟡 ${socket.user.username} disconnected one of their connections`);
+        logger.debug(`🟡 ${socket.user.username} disconnected one of their connections`);
       }
     });
   });

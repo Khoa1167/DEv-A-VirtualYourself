@@ -1,6 +1,7 @@
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
+const logger = require('./logger');
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -62,7 +63,7 @@ const getCloudinaryPublicId = (url) => {
     }
     return fullPathWithExt;
   } catch (err) {
-    console.error('Lỗi trích xuất public_id:', err);
+    logger.error({ err }, 'Lỗi trích xuất public_id');
     return null;
   }
 };
@@ -76,9 +77,9 @@ const deleteCloudinaryImage = async (url) => {
 
   try {
     const result = await cloudinary.uploader.destroy(publicId);
-    console.log(`[Cloudinary Cleanup] Đã xóa ảnh cũ (${publicId}):`, result);
+    logger.info({ publicId, result }, '[Cloudinary Cleanup] Đã xóa ảnh cũ');
   } catch (err) {
-    console.error(`[Cloudinary Cleanup] Lỗi khi xóa ảnh (${publicId}):`, err.message);
+    logger.error({ err, publicId }, '[Cloudinary Cleanup] Lỗi khi xóa ảnh');
   }
 };
 

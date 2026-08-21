@@ -1,3 +1,5 @@
+const logger = require('../config/logger');
+
 // Danh sách từ khóa độc hại/nhạy cảm phổ biến trong tiếng Việt để làm tập dữ liệu local
 const TOXIC_KEYWORDS = [
   'địt', 'đéo', 'đm', 'vcl', 'clm', 'cl', 'đcm', 'cmn', 'chó đẻ', 'bú cu', 
@@ -94,7 +96,7 @@ const analyzeViaOpenAI = async (text, apiKey) => {
       reason
     };
   } catch (err) {
-    console.error('⚠️ [AI Moderation] OpenAI API call failed, falling back to local analysis:', err.message);
+    logger.error({ err }, '⚠️ [AI Moderation] OpenAI API call failed, falling back to local analysis');
     return analyzeLocally(text);
   }
 };
@@ -111,10 +113,9 @@ const moderateContent = async (text) => {
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (apiKey && apiKey !== 'your_optional_openai_api_key_here') {
-    console.log('[AI Moderation] Analyzing message using OpenAI Moderation API...');
+    logger.debug('[AI Moderation] Analyzing message using OpenAI Moderation API...');
     return await analyzeViaOpenAI(text, apiKey);
   } else {
-    // console.log('[AI Moderation] Analyzing message using Local NLP...');
     return analyzeLocally(text);
   }
 };

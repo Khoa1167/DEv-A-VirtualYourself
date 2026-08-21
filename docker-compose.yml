@@ -21,6 +21,9 @@ services:
       - mongo
       - redis
     environment:
+      # Thiếu biến này thì auth.js log thẳng mã OTP đăng ký/quên mật khẩu ra console (chỉ định
+      # cho tiện dev local) — bắt buộc phải "production" ở mọi môi trường triển khai thật.
+      NODE_ENV: production
       PORT: 5000
       MONGO_URI: mongodb://mongo:27017/chatapp
       REDIS_URL: redis://redis:6379

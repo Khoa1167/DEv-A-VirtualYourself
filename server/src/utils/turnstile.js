@@ -2,6 +2,8 @@
 // chạm rate-limit theo IP/email. Theo mẫu graceful-fallback đã dùng ở services/moderation.js:
 // chưa cấu hình CLOUDFLARE_TURNSTILE_SECRET_KEY (dev local) thì bỏ qua verify, không bắt buộc
 // mọi người phải có tài khoản Cloudflare mới chạy được app.
+const logger = require('../config/logger');
+
 const verifyTurnstile = async (token, remoteip) => {
   const secretKey = process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY;
   if (!secretKey) return true; // Chưa cấu hình — coi như không bật Turnstile
@@ -17,7 +19,7 @@ const verifyTurnstile = async (token, remoteip) => {
     const data = await res.json();
     return !!data.success;
   } catch (err) {
-    console.error('Turnstile verify error:', err.message);
+    logger.error({ err }, 'Turnstile verify error');
     return false; // Lỗi mạng/Cloudflare gián đoạn → chặn (fail-closed), rate-limit làm lưới an toàn phía sau
   }
 };

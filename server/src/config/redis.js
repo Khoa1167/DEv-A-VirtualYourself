@@ -3,13 +3,14 @@
 // hiện tại — đúng mẫu "fallback khi thiếu config" đã dùng cho OPENAI_API_KEY trong moderation.js.
 // REDIS_URL cần thiết khi scale ngang nhiều instance (xem ghi chú trong CLAUDE.md).
 const Redis = require('ioredis');
+const logger = require('./logger');
 
 const redisUrl = process.env.REDIS_URL;
 const redisClient = redisUrl ? new Redis(redisUrl) : null;
 
 if (redisClient) {
-  redisClient.on('error', (err) => console.error('[Redis] Lỗi kết nối:', err.message));
-  redisClient.on('connect', () => console.log('🔴 Đã kết nối Redis:', redisUrl));
+  redisClient.on('error', (err) => logger.error({ err }, '[Redis] Lỗi kết nối'));
+  redisClient.on('connect', () => logger.info(`🔴 Đã kết nối Redis: ${redisUrl}`));
 }
 
 module.exports = redisClient;

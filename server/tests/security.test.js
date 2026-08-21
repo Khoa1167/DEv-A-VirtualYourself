@@ -105,10 +105,13 @@ const runTests = async () => {
       username: { "$gt": "" }
     };
     const res = await sendRequest('POST', '/api/auth/check-username', injectionPayload);
-    
-    assert.strictEqual(res.statusCode, 400, "Should return 400 Bad Request for object parameter");
+
+    // Route trả 200 + available:false cho MỌI input sai kiểu (không phân biệt status riêng cho
+    // injection) — an toàn vì isValidUsername() chặn typeof !== 'string' TRƯỚC KHI chạm
+    // User.findOne(), object payload không bao giờ tới được truy vấn Mongo.
+    assert.strictEqual(res.statusCode, 200, "Should return 200 with available:false, not error out");
     const json = JSON.parse(res.body);
-    assert.strictEqual(json.message, 'Tên tài khoản không hợp lệ', "Should return invalid username type message");
+    assert.strictEqual(json.available, false, "Should mark malicious/malformed username as unavailable");
   });
 
   // 5. Test Normal Valid Login

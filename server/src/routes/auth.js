@@ -153,7 +153,7 @@ router.post('/send-otp', async (req, res) => {
 
     // Gửi email OTP
     await sendOTPEmail(normalizedEmail, otp);
-    if (process.env.NODE_ENV !== 'production') console.log(`[DEBUG] OTP for ${normalizedEmail}: ${otp}`);
+    if (process.env.NODE_ENV !== 'production') req.log.debug(`[DEBUG] OTP for ${normalizedEmail}: ${otp}`);
 
     await recordFailure(NS_SEND_OTP_IP, req.ip);
     await recordFailure(NS_SEND_OTP_EMAIL, normalizedEmail, { maxAttempts: 3, lockMinutes: 15 });
@@ -161,7 +161,7 @@ router.post('/send-otp', async (req, res) => {
 
     res.json({ message: 'OTP đã được gửi tới email của bạn' });
   } catch (err) {
-    console.error('send-otp error:', err);
+    req.log.error({ err }, 'send-otp error');
     res.status(500).json({ message: 'Lỗi gửi OTP, vui lòng thử lại' });
   }
 });
@@ -243,7 +243,6 @@ router.post('/verify-otp', async (req, res) => {
       user,
     });
   } catch (err) {
-    console.error('verify-otp error:', err);
     sendServerError(res, err);
   }
 });
@@ -476,21 +475,21 @@ router.post('/request-email-change', protect, async (req, res) => {
     // Gửi OTP về Email Mới để xác nhận quyền sở hữu hộp thư mới
     try {
       await sendEmailChangeOTPEmail(lowerNewEmail, otp);
-      if (process.env.NODE_ENV !== 'production') console.log(`[SECURITY DEBUG] Email Change OTP for new email ${lowerNewEmail}: ${otp}`);
+      if (process.env.NODE_ENV !== 'production') req.log.debug(`[SECURITY DEBUG] Email Change OTP for new email ${lowerNewEmail}: ${otp}`);
     } catch (mailErr) {
-      console.error('Lỗi gửi mail OTP đổi email:', mailErr.message);
+      req.log.warn({ err: mailErr }, 'Lỗi gửi mail OTP đổi email');
     }
 
     // Gửi email cảnh báo bảo mật tới Email CŨ
     try {
       await sendEmailChangeNoticeEmail(req.user.email, lowerNewEmail);
     } catch (noticeErr) {
-      console.error('Lỗi gửi mail cảnh báo bảo mật tới email cũ:', noticeErr.message);
+      req.log.warn({ err: noticeErr }, 'Lỗi gửi mail cảnh báo bảo mật tới email cũ');
     }
 
     res.json({ message: 'Mã OTP xác thực đã được gửi tới email mới của bạn. Chúng tôi cũng đã gửi một email cảnh báo bảo mật tới địa chỉ email hiện tại.' });
   } catch (err) {
-    console.error('request-email-change error:', err);
+    req.log.error({ err }, 'request-email-change error');
     res.status(500).json({ message: 'Lỗi hệ thống, vui lòng thử lại sau' });
   }
 });
@@ -547,7 +546,7 @@ router.post('/verify-email-change', protect, async (req, res) => {
 
     res.json({ message: 'Đổi email thành công!', user: updatedUser });
   } catch (err) {
-    console.error('verify-email-change error:', err);
+    req.log.error({ err }, 'verify-email-change error');
     res.status(500).json({ message: 'Lỗi xác thực đổi email, vui lòng thử lại' });
   }
 });
@@ -725,16 +724,16 @@ router.post('/forgot-password', async (req, res) => {
     // Gửi Email OTP và bắt lỗi gián đoạn dịch vụ SMTP
     try {
       await sendResetPasswordOTPEmail(lowerEmail, otp);
-      if (process.env.NODE_ENV !== 'production') console.log(`[SECURITY DEBUG] Reset Password OTP for ${lowerEmail}: ${otp}`);
+      if (process.env.NODE_ENV !== 'production') req.log.debug(`[SECURITY DEBUG] Reset Password OTP for ${lowerEmail}: ${otp}`);
     } catch (mailErr) {
-      console.error('Lỗi dịch vụ gửi mail SMTP:', mailErr.message);
+      req.log.warn({ err: mailErr }, 'Lỗi dịch vụ gửi mail SMTP');
     }
     await recordFailure(NS_FORGOT_PASSWORD_EMAIL, lowerEmail, { maxAttempts: 3, lockMinutes: 15 });
     dailyOtpBudget.count += 1;
 
     res.json(genericResponse);
   } catch (err) {
-    console.error('forgot-password error:', err);
+    req.log.error({ err }, 'forgot-password error');
     res.status(500).json({ message: 'Đã xảy ra lỗi hệ thống, vui lòng thử lại sau' });
   }
 });
@@ -782,7 +781,7 @@ router.post('/verify-reset-otp', async (req, res) => {
 
     res.json({ message: 'Xác thực OTP thành công', resetToken });
   } catch (err) {
-    console.error('verify-reset-otp error:', err);
+    req.log.error({ err }, 'verify-reset-otp error');
     res.status(500).json({ message: 'Lỗi xác thực OTP, vui lòng thử lại' });
   }
 });
@@ -839,7 +838,7 @@ router.post('/reset-password', async (req, res) => {
 
     res.json({ message: 'Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.' });
   } catch (err) {
-    console.error('reset-password error:', err);
+    req.log.error({ err }, 'reset-password error');
     res.status(500).json({ message: 'Lỗi đặt lại mật khẩu, vui lòng thử lại' });
   }
 });
@@ -867,6 +866,11 @@ const triggerDebouncedKeyChanged = (req, userId) => {
   }, 30000);
   debouncedKeyChangedTimers.set(uIdStr, timer);
 };
+
+// MongoDB deployment này có hỗ trợ transaction không (replica set/mongos)? Phát hiện 1 lần rồi
+// nhớ lại cho mọi request sau — standalone Mongo (vd docker-compose demo mặc định) luôn từ chối
+// transaction giống hệt nhau mỗi lần, không cần trả giá round-trip fail lại từ đầu mỗi request.
+let transactionsSupported = null;
 
 // ─── PUT /api/auth/devices — Đăng ký / gia hạn / xoay khóa thiết bị ──────────
 router.put('/devices', protect, async (req, res) => {
@@ -902,14 +906,17 @@ router.put('/devices', protect, async (req, res) => {
     while (retries > 0) {
       let shouldEmitThisTry = false;
       let session = null;
-      let isReplicaSet = true;
+      let isReplicaSet = transactionsSupported !== false;
 
-      try {
-        session = await mongoose.startSession();
-        session.startTransaction();
-      } catch {
-        isReplicaSet = false;
-        if (session) session.endSession();
+      if (isReplicaSet) {
+        try {
+          session = await mongoose.startSession();
+          session.startTransaction();
+        } catch {
+          isReplicaSet = false;
+          transactionsSupported = false;
+          if (session) session.endSession();
+        }
       }
 
       try {
@@ -995,6 +1002,7 @@ router.put('/devices', protect, async (req, res) => {
           await user.save({ session });
           await session.commitTransaction();
           session.endSession();
+          transactionsSupported = true;
         } else {
           await user.save();
         }
@@ -1003,9 +1011,21 @@ router.put('/devices', protect, async (req, res) => {
         break;
       } catch (err) {
         if (isReplicaSet && session) {
-          await session.abortTransaction();
+          try { await session.abortTransaction(); } catch { /* session có thể đã hỏng sẵn, bỏ qua */ }
           session.endSession();
         }
+
+        // Standalone Mongo (không phải replica set/mongos) từ chối transaction ngay ở lệnh QUERY
+        // ĐẦU TIÊN có gắn session (vd .session(session)), không phải lúc startTransaction() như
+        // dòng code phía trên giả định — nên cờ isReplicaSet không bắt được ngay từ đầu. Phát hiện
+        // đúng lỗi này (code 20 "not allowed on replica set member or mongos"), nhớ lại cho các
+        // request sau, và thử lại NGAY vòng lặp hiện tại không dùng session — không tính vào
+        // retries vì đây là môi trường không hỗ trợ, không phải xung đột transaction tạm thời.
+        if (isReplicaSet && err.code === 20 && /replica set|mongos/i.test(err.message || '')) {
+          transactionsSupported = false;
+          continue;
+        }
+
         if (err.hasErrorLabel && err.hasErrorLabel('TransientTransactionError') && retries > 1) {
           retries--;
           continue;
@@ -1026,7 +1046,7 @@ router.put('/devices', protect, async (req, res) => {
       tokenVersion: finalTokenVersion
     });
   } catch (err) {
-    console.error('PUT /api/auth/devices error:', err);
+    req.log.error({ err }, 'PUT /api/auth/devices error');
     res.status(500).json({ message: 'Lỗi đăng ký thiết bị' });
   }
 });
@@ -1056,7 +1076,7 @@ router.delete('/devices/:deviceId', protect, async (req, res) => {
 
     res.json({ message: 'Đã gỡ bỏ thiết bị thành công', deviceId });
   } catch (err) {
-    console.error('DELETE /api/auth/devices error:', err);
+    req.log.error({ err }, 'DELETE /api/auth/devices error');
     res.status(500).json({ message: 'Lỗi gỡ bỏ thiết bị' });
   }
 });

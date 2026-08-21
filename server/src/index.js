@@ -1,11 +1,15 @@
 require('dotenv').config();
 const express     = require('express');
 const http        = require('http');
+const mongoose    = require('mongoose');
 const { Server }  = require('socket.io');
 const cors        = require('cors');
 const connectDB   = require('./config/db');
 const setupSocket = require('./socket');
 const sanitizeMongo = require('./middleware/sanitize');
+const redisClient  = require('./config/redis');
+const logger       = require('./config/logger');
+const pinoHttp      = require('pino-http');
 
 const app    = express();
 const server = http.createServer(app);
@@ -36,6 +40,12 @@ connectDB();
 
 // Middleware
 app.use(cors({ origin: clientOrigins, credentials: true }));
+// Log có cấu trúc mỗi request (req.id để trace xuyên suốt 1 request qua nhiều dòng log) — bỏ qua
+// '/health' để không rác log mỗi lần Docker healthcheck gọi (mỗi vài giây).
+app.use(pinoHttp({
+  logger,
+  autoLogging: { ignore: (req) => req.url === '/health' },
+}));
 app.use(express.json());
 app.use(sanitizeMongo);
 
@@ -69,11 +79,39 @@ app.get('/', (req, res) => {
   res.json({ message: '🚀 Chat server đang chạy!' });
 });
 
+// Health/readiness check cho Docker healthcheck, load balancer... — kiểm tra thật sự kết nối
+// được Mongo (nguồn dữ liệu bắt buộc) chứ không chỉ "process còn sống" như route '/' ở trên.
+app.get('/health', (req, res) => {
+  const mongoConnected = mongoose.connection.readyState === 1; // 1 = connected
+  res.status(mongoConnected ? 200 : 503).json({
+    status: mongoConnected ? 'ok' : 'unavailable',
+    mongo: mongoConnected ? 'connected' : 'disconnected',
+    redis: redisClient ? redisClient.status : 'disabled',
+  });
+});
+
 // Setup WebSocket
 setupSocket(io);
 
 // Khởi động server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server chạy tại http://localhost:${PORT}`);
+  logger.info(`🚀 Server chạy tại http://localhost:${PORT}`);
 });
+
+// Graceful shutdown — đóng HTTP server + kết nối Mongo/Redis sạch trước khi process thoát, tránh
+// request đang xử lý dở bị cắt ngang hoặc connection pool bị bỏ mồ côi khi container bị dừng
+// (docker stop gửi SIGTERM, chờ 10s trước khi SIGKILL cưỡng bức).
+const shutdown = async (signal) => {
+  logger.info(`${signal} nhận được, đang tắt server...`);
+  server.close(() => logger.info('✅ HTTP server đã đóng'));
+  await mongoose.connection.close();
+  logger.info('✅ Đã đóng kết nối MongoDB');
+  if (redisClient) {
+    await redisClient.quit();
+    logger.info('✅ Đã đóng kết nối Redis');
+  }
+  process.exit(0);
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

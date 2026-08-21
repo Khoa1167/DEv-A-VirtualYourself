@@ -6,6 +6,7 @@ const Room       = require('../models/Room');
 const { protect } = require('../middleware/auth');
 const sendServerError = require('../utils/sendServerError');
 const userFields = require('../utils/publicUserFields');
+const { decryptPII } = require('../utils/crypto');
 
 // GET /api/friends — lấy danh sách bạn bè
 router.get('/', protect, async (req, res) => {
@@ -107,10 +108,20 @@ router.post('/request/:userId', protect, async (req, res) => {
       }
     }
 
-    const friendship = await Friendship.create({
-      sender: req.user._id,
-      receiver: receiverId,
-    });
+    let friendship;
+    try {
+      friendship = await Friendship.create({
+        sender: req.user._id,
+        receiver: receiverId,
+      });
+    } catch (err) {
+      // Race condition: 2 request gửi lời mời kết bạn cho cùng 1 cặp người gần như đồng thời —
+      // check "exists" ở trên chỉ là TOCTOU, unique index combinationKey mới là lưới an toàn thật.
+      if (err.code === 11000) {
+        return res.status(400).json({ message: 'Đã gửi lời mời rồi' });
+      }
+      throw err;
+    }
 
     await friendship.populate('sender', userFields.BASIC);
     await friendship.populate('receiver', userFields.BASIC);
@@ -369,9 +380,12 @@ router.get('/profile/:userId', protect, async (req, res) => {
         createdAt: targetUser.createdAt,
         bio: targetUser.bio || '',
         gender: isFriendOrSelf ? (targetUser.gender || '') : '',
-        dateOfBirth: isFriendOrSelf ? targetUser.dateOfBirth : null,
+        // phone/dateOfBirth lưu mã hóa AES-256-GCM ở DB — decryptPII() ở đây vì object này được
+        // build tay rồi res.json() thẳng, không đi qua User.toJSON() (nơi decrypt tự động chạy
+        // khi serialize nguyên document) như /me hay các route khác.
+        dateOfBirth: isFriendOrSelf ? decryptPII(targetUser.dateOfBirth) : null,
         email: isFriendOrSelf ? targetUser.email : maskEmail(targetUser.email),
-        phone: isFriendOrSelf ? targetUser.phone : maskPhone(targetUser.phone),
+        phone: isFriendOrSelf ? decryptPII(targetUser.phone) : maskPhone(decryptPII(targetUser.phone)),
       },
       friendshipStatus,
       friendshipId,

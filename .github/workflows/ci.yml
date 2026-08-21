@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+
+    env:
+      NODE_ENV: test
+      PORT: 5000
+      MONGO_URI: mongodb://localhost:27017/chatapp_ci
+      REDIS_URL: redis://localhost:6379
+      CLIENT_URL: http://localhost:5173
+      TEST_URL: http://localhost:5000
+      # Chỉ dùng trong CI, không phải secret thật — DB/JWT ở đây là ephemeral, hủy sau mỗi run.
+      JWT_SECRET: ci_test_jwt_secret_not_for_prod
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root deps (Playwright)
+        run: npm ci
+
+      - name: Install server deps
+        run: npm ci
+        working-directory: server
+
+      - name: Start server in background
+        run: nohup npm start > server.log 2>&1 &
+        working-directory: server
+
+      - name: Wait for server to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5000/health; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not become healthy in time"
+          cat server/server.log
+          exit 1
+
+      - name: Seed test user
+        run: node src/scripts/seed-test-user.js
+        working-directory: server
+
+      - name: Run Playwright API tests
+        run: npx playwright test
+
+      - name: Run server security tests
+        run: npm test
+        working-directory: server
+
+      - name: Show server logs on failure
+        if: failure()
+        run: cat server/server.log

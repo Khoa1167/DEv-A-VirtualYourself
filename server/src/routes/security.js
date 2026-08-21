@@ -69,7 +69,7 @@ router.post('/check-link', protect, async (req, res) => {
     });
 
     apiReq.on('error', (err) => {
-      console.error('[Security Proxy] Safe Browsing API Request error:', err.message);
+      req.log.warn({ err }, '[Security Proxy] Safe Browsing API Request error');
       res.json({ safe: true }); // Graceful fallback
     });
 
@@ -81,7 +81,7 @@ router.post('/check-link', protect, async (req, res) => {
     apiReq.write(payload);
     apiReq.end();
   } catch (err) {
-    console.error('Check link error:', err);
+    req.log.error({ err }, 'Check link error');
     res.json({ safe: true }); // Fallback an toàn, không crash app
   }
 });

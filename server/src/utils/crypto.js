@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const logger = require('../config/logger');
 
 // Đọc khóa gốc từ .env — KHÔNG được có fallback hard-code: thiếu key phải crash ngay lúc khởi
 // động thay vì âm thầm mã hóa PII/report bằng 1 chuỗi cố định ai đọc source cũng biết được.
@@ -47,7 +48,7 @@ const encryptPII = (text) => {
     const tag = cipher.getAuthTag().toString('hex');
     return `${iv.toString('hex')}:${tag}:${encrypted}`;
   } catch (err) {
-    console.error('[Crypto] Encrypt PII error:', err);
+    logger.error({ err }, '[Crypto] Encrypt PII error');
     return strVal;
   }
 };
@@ -74,7 +75,7 @@ const decryptPII = (encryptedText) => {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (err) {
-    console.error('[Crypto] Decrypt PII error:', err.message);
+    logger.error({ err }, '[Crypto] Decrypt PII error');
     return encryptedText;
   }
 };
@@ -94,7 +95,7 @@ const encryptReportContent = (text) => {
     const tag = cipher.getAuthTag().toString('hex');
     return `${iv.toString('hex')}:${tag}:${encrypted}`;
   } catch (err) {
-    console.error('[Crypto] Encrypt Report error:', err);
+    logger.error({ err }, '[Crypto] Encrypt Report error');
     return strVal;
   }
 };
@@ -126,7 +127,7 @@ const decrypt = (content, ivHex, tagHex, encryptedKey) => {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (err) {
-    console.error('[Crypto] Decrypt error:', err.message);
+    logger.error({ err }, '[Crypto] Decrypt error');
     return content;
   }
 };
@@ -153,7 +154,7 @@ const decryptReportContent = (encryptedText) => {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (err) {
-    console.error('[Crypto] Decrypt Report error:', err.message);
+    logger.error({ err }, '[Crypto] Decrypt Report error');
     return encryptedText;
   }
 };

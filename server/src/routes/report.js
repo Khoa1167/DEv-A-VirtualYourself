@@ -8,6 +8,11 @@ const { protect, requireAdmin } = require('../middleware/auth');
 const { encryptReportContent, decryptReportContent } = require('../utils/crypto');
 const sendServerError = require('../utils/sendServerError');
 const userFields = require('../utils/publicUserFields');
+const { checkRateWindow } = require('../utils/rateLimiter');
+
+// Chặn request-flooding vào route report (khác với shadow-throttle theo nghiệp vụ ở bước 2 bên
+// dưới — cái đó chỉ âm thầm ngừng xử lý sau N report/giờ, không chặn tốc độ gọi API thô).
+const NS_REPORT_SEND = 'report-send';
 
 // ─── POST /api/reports — Gửi hoặc cập nhật báo cáo tin nhắn ─────────────────────
 router.post('/', protect, async (req, res) => {
@@ -19,6 +24,12 @@ router.post('/', protect, async (req, res) => {
     }
 
     const reporterId = req.user._id;
+
+    const rateLimit = await checkRateWindow(NS_REPORT_SEND, reporterId.toString(), { maxCount: 20, windowMs: 60000 });
+    if (rateLimit.limited) {
+      return res.status(429).json({ message: 'Bạn đang gửi báo cáo quá nhanh, vui lòng thử lại sau.' });
+    }
+
     const user = await User.findById(reporterId);
 
     // 1. Cooldown Check (Shadow Throttling)
@@ -127,7 +138,7 @@ router.post('/', protect, async (req, res) => {
 
     res.json({ message: 'Cảm ơn bạn đã gửi báo cáo. Đội ngũ quản trị sẽ xem xét xử lý.', reportId: report._id });
   } catch (err) {
-    console.error('Create report error:', err);
+    req.log.error({ err }, 'Create report error');
     res.status(500).json({ message: 'Lỗi hệ thống khi gửi báo cáo' });
   }
 });
